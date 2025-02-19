@@ -145,6 +145,9 @@ export default function FaceDetectionCamera() {
   const [showCreateShade, setShowCreateShade] = useState(false);
   const [customShades, setCustomShades] = useState<CustomShade[]>([]);
 
+  // Combine sample and custom shades
+  const allShades = useMemo(() => [...SAMPLE_SHADES, ...customShades], [customShades]);
+
   const videoConstraints = {
     width: 640,
     height: 480,
@@ -424,24 +427,45 @@ export default function FaceDetectionCamera() {
                                  transition-opacity duration-300 bg-gradient-to-r from-rose via-gold to-rose" />
                 </button>
 
-                {/* Fixed Categories */}
-                <div className="grid grid-cols-5 gap-2">
-                  {SHADE_CATEGORIES.map((category) => (
-                    <button
-                      key={category.name}
-                      onClick={() => setSelectedCategory(category)}
-                      className="py-2 px-3 bg-white/50 rounded-lg hover:bg-white/80 
-                                 transition-all duration-300 group border border-rose/10
-                                 hover:shadow-lg hover:-translate-y-0.5"
-                    >
-                      <h3 className="text-rose-dark font-medium text-center text-sm whitespace-nowrap">
-                        {category.name}
-                      </h3>
-                      <div className="mt-1 h-0.5 w-8 mx-auto bg-gradient-to-r 
-                                     from-transparent via-rose/20 to-transparent 
-                                     group-hover:via-rose/40 transition-colors" />
-                    </button>
-                  ))}
+                {/* Categories Swiper */}
+                <div className="absolute bottom-24 left-0 right-0">
+                  <Swiper
+                    slidesPerView="auto"
+                    centeredSlides
+                    spaceBetween={12}
+                    className="px-4"
+                  >
+                    {SHADE_CATEGORIES.map((category) => (
+                      <SwiperSlide key={category.name} className="!w-auto">
+                        <button
+                          onClick={() => setSelectedCategory(category)}
+                          className={`
+                            relative px-5 py-2 rounded-full text-sm font-medium
+                            transition-all duration-200 transform
+                            ${selectedCategory?.name === category.name
+                              ? 'bg-rose text-white scale-105 shadow-lg ring-2 ring-rose/20'
+                              : 'bg-white/10 text-white/80 hover:bg-white/20 hover:text-white active:scale-95'}
+                            before:absolute before:inset-0 before:rounded-full
+                            before:bg-gradient-to-b before:from-white/10 before:to-transparent
+                            before:opacity-0 hover:before:opacity-100 before:transition-opacity
+                            backdrop-blur-sm
+                          `}
+                        >
+                          <span className="relative z-10 whitespace-nowrap">
+                            {category.name}
+                          </span>
+                          {selectedCategory?.name === category.name && (
+                            <motion.div
+                              layoutId="activeCategoryIndicator"
+                              className="absolute inset-0 bg-gradient-to-r from-rose to-rose-dark 
+                                       rounded-full -z-10"
+                              transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                            />
+                          )}
+                        </button>
+                      </SwiperSlide>
+                    ))}
+                  </Swiper>
                 </div>
               </div>
             ) : (
@@ -545,7 +569,14 @@ export default function FaceDetectionCamera() {
       {/* Create Shade Modal */}
       <AnimatePresence>
         {showCreateShade && (
-          <CreateShadeModal onClose={() => setShowCreateShade(false)} />
+          <CreateShadeModal 
+            onClose={() => setShowCreateShade(false)}
+            onSave={(newShade) => {
+              setCustomShades(prev => [...prev, newShade]);
+              setSelectedShade(newShade);
+              setShowCreateShade(false);
+            }}
+          />
         )}
       </AnimatePresence>
     </>
@@ -600,7 +631,13 @@ const PhotoPreview = ({ photo, onClose }: { photo: CapturedPhoto; onClose: () =>
   </motion.div>
 );
 
-const CreateShadeModal = ({ onClose }: { onClose: () => void }) => {
+const CreateShadeModal = ({ 
+  onClose, 
+  onSave 
+}: { 
+  onClose: () => void;
+  onSave: (shade: CustomShade) => void;
+}) => {
   const [selectedShades, setSelectedShades] = useState<Shade[]>([]);
   const [customName, setCustomName] = useState('');
   const [step, setStep] = useState<'select' | 'blend'>('select');
@@ -623,6 +660,20 @@ const CreateShadeModal = ({ onClose }: { onClose: () => void }) => {
     } else if (selectedShades.length < 4) {
       setSelectedShades(prev => [...prev, shade]);
     }
+  };
+
+  const handleSave = () => {
+    if (!blendedColor || !customName) return;
+    
+    const newShade: CustomShade = {
+      id: `custom-${Date.now()}`,
+      name: customName,
+      color: blendedColor,
+      isCustom: true,
+      blendedFrom: selectedShades
+    };
+    
+    onSave(newShade);
   };
 
   return (
@@ -660,7 +711,7 @@ const CreateShadeModal = ({ onClose }: { onClose: () => void }) => {
                 Select up to 4 shades to blend ({selectedShades.length}/4 selected)
               </p>
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 h-[260px] overflow-y-auto p-1">
-                {SAMPLE_SHADES.map((shade) => (
+                {allShades.map((shade) => (
                   <button
                     key={shade.id}
                     onClick={() => handleShadeSelect(shade)}
@@ -753,19 +804,7 @@ const CreateShadeModal = ({ onClose }: { onClose: () => void }) => {
                   Cancel
                 </button>
                 <button
-                  onClick={() => {
-                    if (!blendedColor || !customName) return;
-                    const newShade: CustomShade = {
-                      id: `custom-${Date.now()}`,
-                      name: customName,
-                      color: blendedColor,
-                      isCustom: true,
-                      blendedFrom: selectedShades
-                    };
-                    setCustomShades(prev => [...prev, newShade]);
-                    setSelectedShade(newShade);
-                    onClose();
-                  }}
+                  onClick={handleSave}
                   disabled={!blendedColor || !customName}
                   className={`
                     flex-1 px-4 py-1 text-xs rounded-lg transition-all
