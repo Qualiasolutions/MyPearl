@@ -1,0 +1,127 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #F0F3F5;
+  --foreground: #171717;
+  
+  /* Brand Colors */
+  --pearl: #F0F3F5;
+  --pearl-light: #FFFFFF;
+  --pearl-dark: #E5E9EB;
+  
+  --gold: #D4AF37;
+  --gold-light: #E5C158;
+  --gold-dark: #B69220;
+  
+  --rose: #E8B4B8;
+  --rose-light: #F5C5C9;
+  --rose-dark: #D49FA3;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Utility classes */
+@layer components {
+  .pearl-gradient {
+    @apply bg-gradient-to-r from-pearl-light via-pearl to-pearl-dark;
+  }
+  
+  .gold-button {
+    @apply bg-gold hover:bg-gold-light text-white font-medium px-4 py-2 rounded-full 
+           transition-colors duration-200 shadow-md hover:shadow-lg;
+  }
+  
+  .rose-accent {
+    @apply border-rose hover:border-rose-light border-2 rounded-lg p-2 
+           transition-colors duration-200;
+  }
+}
+
+/* Add these custom styles for the shade swiper */
+.shade-swiper {
+  --swiper-theme-color: #E8B4B8;
+  --swiper-navigation-size: 14px;
+  --swiper-pagination-bullet-size: 4px;
+}
+
+.shade-swiper .swiper-button-next,
+.shade-swiper .swiper-button-prev {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(4px);
+  width: 20px;
+  height: 20px;
+  top: 40%;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.shade-swiper .swiper-button-next:after,
+.shade-swiper .swiper-button-prev:after {
+  font-size: 8px;
+  font-weight: bold;
+  color: white;
+}
+
+.shade-swiper .swiper-pagination {
+  bottom: 0;
+}
+
+.shade-swiper .swiper-pagination-bullet {
+  background: white;
+  opacity: 0.5;
+  margin: 0 2px;
+}
+
+.shade-swiper .swiper-pagination-bullet-active {
+  background: var(--swiper-theme-color);
+  opacity: 1;
+}
+
+/* Elegant scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(232, 180, 184, 0.3);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(232, 180, 184, 0.5);
+}
+
+/* Shade button animations */
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255,255,255,0) 0%,
+    rgba(255,255,255,0.1) 50%,
+    rgba(255,255,255,0) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
