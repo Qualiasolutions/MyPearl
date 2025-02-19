@@ -7,12 +7,12 @@ import '@tensorflow/tfjs-backend-webgl';
 import * as faceLandmarksDetection from '@tensorflow-models/face-landmarks-detection';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Swiper, SwiperSlide } from 'swiper/react';
-import { Navigation, Pagination } from 'swiper/modules';
 import 'swiper/css';
 import 'swiper/css/navigation';
 import 'swiper/css/pagination';
 import IntroAnimation from '../intro/IntroAnimation';
 import { Camera } from 'lucide-react';
+import Image from 'next/image';
 
 interface FacePosition {
   isGood: boolean;
@@ -35,6 +35,25 @@ interface CapturedPhoto {
 interface CustomShade extends Shade {
   isCustom: true;
   blendedFrom: Shade[];
+}
+
+interface Category {
+  name: string;
+  shades: Shade[];
+}
+
+interface FaceBox {
+  xMin: number;
+  yMin: number;
+  width: number;
+  height: number;
+  xMax?: number;
+  yMax?: number;
+}
+
+interface DetectedFace {
+  box: FaceBox;
+  landmarks?: Array<{ x: number; y: number; z: number }>;
 }
 
 const SAMPLE_SHADES: Shade[] = [
@@ -69,27 +88,37 @@ const SAMPLE_SHADES: Shade[] = [
   { id: 'mahogany-oasis', name: 'Mahogany Oasis', color: 'rgba(78, 51, 40, 0.6)' },
 ];
 
-// Group shades by category for the swiper
+// Update the SHADE_CATEGORIES array with color representations
 const SHADE_CATEGORIES = [
   {
-    name: 'Fair',
-    shades: SAMPLE_SHADES.slice(0, 4)
+    name: '●○○○○',
+    displayName: 'Lightest',
+    shades: SAMPLE_SHADES.slice(0, 4),
+    color: 'rgba(245, 230, 224, 1)' // Lightest shade color
   },
   {
-    name: 'Light',
-    shades: SAMPLE_SHADES.slice(4, 8)
+    name: '●●○○○',
+    displayName: 'Light',
+    shades: SAMPLE_SHADES.slice(4, 8),
+    color: 'rgba(230, 200, 175, 1)' // Light shade color
   },
   {
-    name: 'Medium',
-    shades: SAMPLE_SHADES.slice(8, 12)
+    name: '●●●○○',
+    displayName: 'Medium',
+    shades: SAMPLE_SHADES.slice(8, 12),
+    color: 'rgba(205, 170, 140, 1)' // Medium shade color
   },
   {
-    name: 'Med Deep',
-    shades: SAMPLE_SHADES.slice(12, 16)
+    name: '●●●●○',
+    displayName: 'Tan',
+    shades: SAMPLE_SHADES.slice(12, 16),
+    color: 'rgba(176, 139, 115, 1)' // Tan shade color
   },
   {
-    name: 'Deep',
-    shades: SAMPLE_SHADES.slice(16, 20)
+    name: '●●●●●',
+    displayName: 'Deep',
+    shades: SAMPLE_SHADES.slice(16, 20),
+    color: 'rgba(124, 91, 74, 1)' // Deep shade color
   }
 ];
 
@@ -134,11 +163,11 @@ export default function FaceDetectionCamera() {
     isGood: false,
     message: "Position your face in the circle"
   });
-  const detector = useRef<any>(null);
+  const detector = useRef<faceLandmarksDetection.FaceLandmarksDetector>(null);
   const requestRef = useRef<number>();
   const [selectedShade, setSelectedShade] = useState<Shade | null>(null);
   const [showIntro, setShowIntro] = useState(true);
-  const [selectedCategory, setSelectedCategory] = useState<{ name: string; shades: Shade[] } | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [photos, setPhotos] = useState<CapturedPhoto[]>([]);
   const [showPhotoPreview, setShowPhotoPreview] = useState(false);
   const [lastCapturedPhoto, setLastCapturedPhoto] = useState<CapturedPhoto | null>(null);
@@ -159,7 +188,7 @@ export default function FaceDetectionCamera() {
     setIsCameraReady(true);
   };
 
-  const handleCameraError = (error: string | null) => {
+  const handleCameraError = (error: string | DOMException) => {
     console.error('Camera error:', error);
   };
 
@@ -215,10 +244,7 @@ export default function FaceDetectionCamera() {
         video.width = videoWidth;
         video.height = videoHeight;
 
-        const faces = await detector.current.estimateFaces(video, {
-          flipHorizontal: false,
-          staticImageMode: false,
-        });
+        const faces = await detector.current.estimateFaces(video) as DetectedFace[];
 
         const hasFaces = faces && faces.length > 0;
         setIsFaceDetected(hasFaces);
@@ -284,7 +310,7 @@ export default function FaceDetectionCamera() {
       console.log('Starting face detection loop');
       detectFaces();
     }
-  }, [isModelLoading, isCameraReady]);
+  }, [isModelLoading, isCameraReady, detectFaces]);
 
   const capturePhoto = () => {
     if (webcamRef.current && facePosition.isGood) {
@@ -410,62 +436,53 @@ export default function FaceDetectionCamera() {
 
         {/* Bottom Control Section - 25% height */}
         <div className="absolute bottom-0 left-0 right-0 h-[25vh] bg-white/90 backdrop-blur-md border-t border-rose/10">
-          <div className="h-full p-4">
+          <div className="h-full p-4 flex flex-col">
             {!selectedCategory ? (
-              <div className="relative h-full flex flex-col gap-3">
-                {/* Create Your Own Shade Button */}
+              <div className="flex flex-col gap-4">
+                {/* Create Your Own Shade Button - More Elegant */}
                 <button
                   onClick={() => setShowCreateShade(true)}
-                  className="group relative px-6 py-2 bg-gradient-to-r from-gold via-rose to-gold 
-                             text-white text-sm rounded-full shadow-lg hover:shadow-xl transition-all duration-300
-                             hover:-translate-y-0.5 animate-glow"
+                  className="relative group overflow-hidden"
                 >
-                  <span className="relative z-10 font-medium tracking-wide whitespace-nowrap">
-                    Create Your Own Shade
-                  </span>
-                  <div className="absolute inset-0 rounded-full opacity-0 group-hover:opacity-100
-                                 transition-opacity duration-300 bg-gradient-to-r from-rose via-gold to-rose" />
+                  <div className="relative px-8 py-4 bg-gradient-to-r from-gold/90 via-rose/90 to-gold/90 
+                                  rounded-2xl shadow-lg transition-all duration-300 group-hover:shadow-xl
+                                  group-hover:scale-[1.02] border border-white/20"
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-r from-rose via-gold to-rose 
+                                    opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                    <div className="relative flex items-center justify-center gap-3">
+                      <span className="text-sm font-medium tracking-wide text-white">
+                        Create Your Perfect Blend
+                      </span>
+                      <span className="w-px h-4 bg-white/30" />
+                      <div className="flex gap-1">
+                        <span className="w-2 h-2 rounded-full bg-white/90 animate-pulse" style={{ animationDelay: '0ms' }} />
+                        <span className="w-2 h-2 rounded-full bg-white/90 animate-pulse" style={{ animationDelay: '200ms' }} />
+                        <span className="w-2 h-2 rounded-full bg-white/90 animate-pulse" style={{ animationDelay: '400ms' }} />
+                      </div>
+                    </div>
+                  </div>
                 </button>
 
-                {/* Categories Swiper */}
-                <div className="absolute bottom-24 left-0 right-0">
-                  <Swiper
-                    slidesPerView="auto"
-                    centeredSlides
-                    spaceBetween={12}
-                    className="px-4"
-                  >
-                    {SHADE_CATEGORIES.map((category) => (
-                      <SwiperSlide key={category.name} className="!w-auto">
-                        <button
-                          onClick={() => setSelectedCategory(category)}
-                          className={`
-                            relative px-5 py-2 rounded-full text-sm font-medium
-                            transition-all duration-200 transform
-                            ${selectedCategory?.name === category.name
-                              ? 'bg-rose text-white scale-105 shadow-lg ring-2 ring-rose/20'
-                              : 'bg-white/10 text-white/80 hover:bg-white/20 hover:text-white active:scale-95'}
-                            before:absolute before:inset-0 before:rounded-full
-                            before:bg-gradient-to-b before:from-white/10 before:to-transparent
-                            before:opacity-0 hover:before:opacity-100 before:transition-opacity
-                            backdrop-blur-sm
-                          `}
-                        >
-                          <span className="relative z-10 whitespace-nowrap">
-                            {category.name}
-                          </span>
-                          {selectedCategory?.name === category.name && (
-                            <motion.div
-                              layoutId="activeCategoryIndicator"
-                              className="absolute inset-0 bg-gradient-to-r from-rose to-rose-dark 
-                                       rounded-full -z-10"
-                              transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
-                            />
-                          )}
-                        </button>
-                      </SwiperSlide>
-                    ))}
-                  </Swiper>
+                {/* Categories - Fixed Grid with Color Representation */}
+                <div className="grid grid-cols-5 gap-3 px-4">
+                  {SHADE_CATEGORIES.map((category) => (
+                    <button
+                      key={category.name}
+                      onClick={() => setSelectedCategory(category)}
+                      className="group relative flex flex-col items-center gap-2 p-3 
+                                 rounded-xl transition-all duration-300 hover:-translate-y-0.5"
+                    >
+                      <div className="w-12 h-12 rounded-full shadow-lg transition-transform duration-300
+                                    group-hover:scale-110 group-hover:shadow-xl border border-white/20"
+                           style={{ backgroundColor: category.color }}
+                      />
+                      <div className="text-[10px] font-medium tracking-wider text-rose-dark/70 
+                                    transition-colors duration-300 group-hover:text-rose-dark">
+                        {category.name}
+                      </div>
+                    </button>
+                  ))}
                 </div>
               </div>
             ) : (
@@ -566,21 +583,21 @@ export default function FaceDetectionCamera() {
         )}
       </AnimatePresence>
 
-      {/* Create Shade Modal */}
-      <AnimatePresence>
-        {showCreateShade && (
-          <CreateShadeModal 
-            onClose={() => setShowCreateShade(false)}
-            onSave={(newShade) => {
-              setCustomShades(prev => [...prev, newShade]);
-              setSelectedShade(newShade);
-              setShowCreateShade(false);
-            }}
-          />
-        )}
-      </AnimatePresence>
-    </>
-  );
+   {/* Create Shade Modal */}
+<AnimatePresence>
+  {showCreateShade && (
+    <CreateShadeModal 
+      onClose={() => setShowCreateShade(false)}
+      onSave={(newShade) => {
+        setCustomShades(prev => [...prev, newShade]);
+        setSelectedShade(newShade);
+        setShowCreateShade(false);
+      }}
+    />
+  )}
+</AnimatePresence>
+</>
+);
 }
 
 const PhotoPreview = ({ photo, onClose }: { photo: CapturedPhoto; onClose: () => void }) => (
@@ -596,9 +613,11 @@ const PhotoPreview = ({ photo, onClose }: { photo: CapturedPhoto; onClose: () =>
       className="bg-white rounded-2xl overflow-hidden max-w-md w-full"
     >
       <div className="relative">
-        <img 
+        <Image 
           src={photo.imageUrl} 
           alt="Captured look" 
+          width={400}
+          height={533}
           className="w-full aspect-[3/4] object-cover"
         />
         {photo.shade && (
@@ -640,7 +659,9 @@ const CreateShadeModal = ({
 }) => {
   const [selectedShades, setSelectedShades] = useState<Shade[]>([]);
   const [customName, setCustomName] = useState('');
-  const [step, setStep] = useState<'select' | 'blend'>('select');
+
+  // Use SAMPLE_SHADES directly
+  const availableShades = SAMPLE_SHADES;
 
   // Calculate blended color whenever selected shades change
   const blendedColor = useMemo(() => {
@@ -711,7 +732,7 @@ const CreateShadeModal = ({
                 Select up to 4 shades to blend ({selectedShades.length}/4 selected)
               </p>
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 h-[260px] overflow-y-auto p-1">
-                {allShades.map((shade) => (
+                {availableShades.map((shade) => (
                   <button
                     key={shade.id}
                     onClick={() => handleShadeSelect(shade)}
@@ -822,4 +843,4 @@ const CreateShadeModal = ({
       </motion.div>
     </motion.div>
   );
-}; 
+};
