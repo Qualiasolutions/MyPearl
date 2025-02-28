@@ -62,7 +62,7 @@ export default function FaceOverlay({ landmarks, imageWidth, imageHeight, mode, 
     const offsetY = (canvas.height - imageHeight * scaleFactor) / 2;
 
     // Draw face shade with improved blending
-    if (shade && landmarks.length > 100) { // Make sure we have enough landmarks
+    if (shade && landmarks.length > 0) { // Reduced threshold to ensure rendering
       // Use requestAnimationFrame for smoother rendering
       window.requestAnimationFrame(() => {
         applyShadeWithBlending(ctx, landmarks, imageWidth, imageHeight, scaleFactor, offsetX, offsetY, shade, opacity);
@@ -83,7 +83,7 @@ export default function FaceOverlay({ landmarks, imageWidth, imageHeight, mode, 
     opacity: number
   ) => {
     // Performance optimization: check if we have valid landmarks
-    if (!landmarks || landmarks.length < 150) return;
+    if (!landmarks || landmarks.length < 50) return; // Reduced threshold for landmark count
     
     try {
       // Create face mask
@@ -94,11 +94,15 @@ export default function FaceOverlay({ landmarks, imageWidth, imageHeight, mode, 
       
       // Map the first point of face outline
       const firstPoint = landmarks[FACE_OUTLINE_LANDMARKS[0]];
-      if (!firstPoint) return;
-      
-      const firstX = firstPoint.x * imageWidth * scaleFactor + offsetX;
-      const firstY = firstPoint.y * imageHeight * scaleFactor + offsetY;
-      ctx.moveTo(firstX, firstY);
+      if (!firstPoint) {
+        // Fallback if specific landmark not found - use first available landmark
+        ctx.moveTo(landmarks[0].x * imageWidth * scaleFactor + offsetX, 
+                  landmarks[0].y * imageHeight * scaleFactor + offsetY);
+      } else {
+        const firstX = firstPoint.x * imageWidth * scaleFactor + offsetX;
+        const firstY = firstPoint.y * imageHeight * scaleFactor + offsetY;
+        ctx.moveTo(firstX, firstY);
+      }
       
       // Map the rest of the face outline points
       for (let i = 1; i < FACE_OUTLINE_LANDMARKS.length; i++) {
@@ -164,9 +168,68 @@ export default function FaceOverlay({ landmarks, imageWidth, imageHeight, mode, 
       // Apply additional coverage to concealer highlight areas
       applyConcealerHighlights(ctx, landmarks, imageWidth, imageHeight, scaleFactor, offsetX, offsetY, r, g, b, a * 1.2);
       
+      // Apply a basic face mask if detailed landmarks aren't available
+      if (landmarks.length < 100) {
+        // Create a simple oval face shape as fallback
+        ctx.save();
+        ctx.beginPath();
+        
+        // Find the face center by averaging landmark positions
+        let centerX = 0, centerY = 0;
+        for (const landmark of landmarks) {
+          centerX += landmark.x;
+          centerY += landmark.y;
+        }
+        centerX = (centerX / landmarks.length) * imageWidth * scaleFactor + offsetX;
+        centerY = (centerY / landmarks.length) * imageHeight * scaleFactor + offsetY;
+        
+        // Draw an oval approximating a face
+        const faceWidth = imageWidth * 0.25 * scaleFactor;
+        const faceHeight = imageHeight * 0.35 * scaleFactor;
+        
+        ctx.ellipse(
+          centerX, centerY,
+          faceWidth, faceHeight,
+          0, 0, Math.PI * 2
+        );
+        
+        // Fill with shade color
+        ctx.fillStyle = shadeColor;
+        ctx.fill();
+        ctx.restore();
+        
+        return;
+      }
+      
       ctx.restore();
     } catch (error) {
       console.error('Error applying concealer overlay:', error);
+      
+      // Fallback rendering on error
+      try {
+        // Simple face mask as fallback
+        ctx.save();
+        ctx.beginPath();
+        
+        // Create a centered face oval
+        const centerX = imageWidth * scaleFactor / 2 + offsetX;
+        const centerY = imageHeight * scaleFactor / 2 + offsetY;
+        const faceWidth = imageWidth * 0.3 * scaleFactor;
+        const faceHeight = imageHeight * 0.4 * scaleFactor;
+        
+        ctx.ellipse(
+          centerX, centerY,
+          faceWidth, faceHeight,
+          0, 0, Math.PI * 2
+        );
+        
+        // Fill with solid shade color for reliability
+        ctx.fillStyle = shadeColor;
+        ctx.fill();
+        ctx.restore();
+      } catch (e) {
+        console.error('Fallback rendering also failed:', e);
+      }
     }
   };
   
@@ -281,14 +344,13 @@ export default function FaceOverlay({ landmarks, imageWidth, imageHeight, mode, 
   };
 
   return (
-    <canvas
+    <canvas 
       ref={canvasRef}
-      className="absolute inset-0 w-full h-full pointer-events-none"
+      className="absolute top-0 left-0 w-full h-full pointer-events-none z-10"
       style={{ 
-        width: imageWidth, 
-        height: imageHeight,
-        maxWidth: '100%',
-        maxHeight: '100%'
+        objectFit: 'contain',
+        width: '100%',
+        height: '100%',
       }}
     />
   );

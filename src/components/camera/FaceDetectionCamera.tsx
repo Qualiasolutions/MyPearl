@@ -18,6 +18,7 @@ import ShadeSelector from '../shades/ShadeSelector';
 import CreateShadePanel from '../shades/CreateShadePanel';
 import type { Shade as ShadeType } from '@/types/shades';
 import { SHADE_DATA } from '@/types/shades';
+import { useFaceDetectionStore } from '@/store/FaceDetectionStore';
 
 interface FacePosition {
   isGood: boolean;
@@ -175,6 +176,8 @@ export default function FaceDetectionCamera() {
   const detector = useRef<any>(null);
   const requestRef = useRef<number | null>(null);
   
+  const { setFaceDetected } = useFaceDetectionStore();
+  
   const [isCameraReady, setIsCameraReady] = useState(false);
   const [isModelLoading, setIsModelLoading] = useState(true);
   const [modelError, setModelError] = useState(false);
@@ -188,7 +191,7 @@ export default function FaceDetectionCamera() {
     center: undefined
   });
   
-  const [selectedShade, setSelectedShade] = useState<Shade | null>(null);
+  const [selectedShade, setSelectedShade] = useState<Shade | null>(SAMPLE_SHADES[9]); // Default to a medium shade for testing
   const [showIntro, setShowIntro] = useState(true);
   const [customShades, setCustomShades] = useState<CustomShade[]>(getStoredCustomShades());
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
@@ -198,6 +201,7 @@ export default function FaceDetectionCamera() {
   const [showCreateShade, setShowCreateShade] = useState(false);
   const [detectionQuality, setDetectionQuality] = useState<'low' | 'medium' | 'high'>('medium');
   const [showShadeSelector, setShowShadeSelector] = useState(false);
+  const [debugMode, setDebugMode] = useState(false);
   
   const lastDetectionTime = useRef<number>(0);
   const detectionInterval = useRef<number>(detectionQuality === 'high' ? 0 : detectionQuality === 'medium' ? 100 : 200);
@@ -319,6 +323,7 @@ export default function FaceDetectionCamera() {
 
         const hasFaces = faces && faces.length > 0;
         setIsFaceDetected(hasFaces);
+        setFaceDetected(hasFaces);
         
         if (hasFaces) {
           // Extract landmarks from the first detected face
@@ -431,6 +436,7 @@ export default function FaceDetectionCamera() {
         }
       }
     } catch (error) {
+      setFaceDetected(false);
       setDetectedFaceLandmarks([]);
       consecutiveFailures.current++;
       console.error('Error during face detection:', error);
@@ -448,7 +454,7 @@ export default function FaceDetectionCamera() {
     }
 
     requestRef.current = requestAnimationFrame(detectFaces);
-  }, []);
+  }, [setFaceDetected]);
   
   // Start face detection loop
   useEffect(() => {
@@ -620,6 +626,11 @@ export default function FaceDetectionCamera() {
     setShowCreateShade(false);
   };
 
+  // Add a debug toggle function
+  const toggleDebugMode = () => {
+    setDebugMode(prev => !prev);
+  };
+
   return (
     <>
       {showIntro && <IntroAnimation onComplete={() => setShowIntro(false)} />}
@@ -640,16 +651,25 @@ export default function FaceDetectionCamera() {
               forceScreenshotSourceSize={true}
             />
             
-            {/* Concealer Overlay */}
-            {isFaceDetected && webcamRef.current?.video && detectedFaceLandmarks.length > 0 && selectedShade && (
-              <FaceOverlay
-                landmarks={detectedFaceLandmarks}
-                imageWidth={webcamRef.current.video.videoWidth}
-                imageHeight={webcamRef.current.video.videoHeight}
-                mode="livestream"
-                shade={selectedShade.color}
-                opacity={0.65}
-              />
+            {/* Concealer Overlay - Force render if in debug mode */}
+            {(isFaceDetected || debugMode) && webcamRef.current?.video && (
+              <div className="absolute inset-0 z-20 pointer-events-none">
+                <FaceOverlay
+                  landmarks={detectedFaceLandmarks.length > 0 ? detectedFaceLandmarks : [
+                    // Fallback landmarks for testing when no face is detected
+                    { x: 0.4, y: 0.4, z: 0 },
+                    { x: 0.6, y: 0.4, z: 0 },
+                    { x: 0.5, y: 0.5, z: 0 },
+                    { x: 0.4, y: 0.6, z: 0 },
+                    { x: 0.6, y: 0.6, z: 0 }
+                  ]}
+                  imageWidth={webcamRef.current.video.videoWidth}
+                  imageHeight={webcamRef.current.video.videoHeight}
+                  mode="livestream"
+                  shade={selectedShade?.color || 'rgba(230, 200, 175, 0.6)'}
+                  opacity={0.8} // Increased opacity for better visibility
+                />
+              </div>
             )}
           </div>
           
@@ -712,10 +732,10 @@ export default function FaceDetectionCamera() {
               {/* Camera Button */}
               <button
                 onClick={capturePhoto}
-                disabled={!facePosition.isGood}
+                disabled={!facePosition.isGood && !debugMode}
                 className={`
                   w-16 h-16 rounded-full flex items-center justify-center shadow-lg
-                  ${facePosition.isGood 
+                  ${facePosition.isGood || debugMode
                     ? 'bg-white text-neutral-900 hover:bg-neutral-100' 
                     : 'bg-neutral-400 text-neutral-600'}
                   transition-all
@@ -733,6 +753,14 @@ export default function FaceDetectionCamera() {
               </button>
             </div>
           </div>
+
+          {/* Debug Toggle */}
+          <button 
+            onClick={toggleDebugMode}
+            className="absolute top-4 right-4 px-2 py-1 bg-black/50 text-white text-xs rounded"
+          >
+            {debugMode ? 'Debug: ON' : 'Debug: OFF'}
+          </button>
 
           {/* Loading indicator */}
           {isModelLoading && (
