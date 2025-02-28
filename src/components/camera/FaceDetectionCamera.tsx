@@ -11,8 +11,11 @@ import 'swiper/css';
 import 'swiper/css/navigation';
 import 'swiper/css/pagination';
 import IntroAnimation from '../intro/IntroAnimation';
-import { Camera, AlertCircle, RefreshCw } from 'lucide-react';
+import { Camera, AlertCircle, RefreshCw, ChevronUp, CheckCircle, XCircle } from 'lucide-react';
 import Image from 'next/image';
+import FaceOverlay from './FaceOverlay';
+import ShadeSelector from '../shades/ShadeSelector';
+import type { Shade as ShadeType } from '@/types/shades';
 
 interface FacePosition {
   isGood: boolean;
@@ -192,12 +195,15 @@ export default function FaceDetectionCamera() {
   const [lastCapturedPhoto, setLastCapturedPhoto] = useState<CapturedPhoto | null>(null);
   const [showCreateShade, setShowCreateShade] = useState(false);
   const [detectionQuality, setDetectionQuality] = useState<'low' | 'medium' | 'high'>('medium');
+  const [showShadeSelector, setShowShadeSelector] = useState(false);
   
   const lastDetectionTime = useRef<number>(0);
   const detectionInterval = useRef<number>(detectionQuality === 'high' ? 0 : detectionQuality === 'medium' ? 100 : 200);
   const faceDetectionAttempts = useRef<number>(0);
   const maxConsecutiveFailures = 5;
   const consecutiveFailures = useRef<number>(0);
+  
+  const [detectedFaceLandmarks, setDetectedFaceLandmarks] = useState<Array<{ x: number; y: number; z: number }>>([]);
   
   // Combine sample and custom shades
   const allShades = useMemo(() => {
@@ -228,66 +234,56 @@ export default function FaceDetectionCamera() {
     );
   };
   
-  // Setup face detection
-  useEffect(() => {
-    if (!isCameraReady) return;
+  // Modify the handleShadeSelection function to correctly handle type conversion
+  const handleShadeSelection = (shade: ShadeType) => {
+    // Convert shade from the imported type to the local Shade type
+    const convertedShade: Shade = {
+      id: shade.id.toString(),
+      name: shade.name,
+      color: `rgba(${hexToRgb(shade.colorHex)}, 0.6)`
+    };
+    setSelectedShade(convertedShade);
+    setShowShadeSelector(false);
+  };
+  
+  // Utility function to convert hex color to RGB components
+  const hexToRgb = (hex: string): string => {
+    // Remove the # if present
+    hex = hex.replace('#', '');
     
-    const setupFaceDetection = async () => {
-      try {
-        // Add timeout to prevent unending loading state
-        const tfReadyPromise = Promise.race([
-          tf.ready(),
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('TensorFlow initialization timeout')), 15000)
-          )
-        ]);
-        
-        await tfReadyPromise;
-        console.log('TensorFlow.js ready');
-        
-        try {
-          await tf.setBackend('webgl');
-          console.log('WebGL backend initialized');
-        } catch (backendError) {
-          console.warn('WebGL backend failed, falling back to CPU', backendError);
-          await tf.setBackend('cpu');
-          console.log('CPU backend initialized');
+    // Parse the hex values
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    
+    return `${r}, ${g}, ${b}`;
+  };
+  
+  // Setup face detection function
+  const setupFaceDetection = async () => {
+    try {
+      await tf.ready();
+      await tf.setBackend('webgl');
+      console.log('TensorFlow.js initialized with WebGL backend');
+
+      // Create the face detector with enhanced configuration
+      detector.current = await faceLandmarksDetection.createDetector(
+        faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
+        {
+          runtime: 'tfjs',
+          maxFaces: 1,
+          refineLandmarks: true, // Enhanced landmark detection
         }
-  
-        // Create the face detector with enhanced configuration
-        detector.current = await faceLandmarksDetection.createDetector(
-          faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
-          {
-            runtime: 'tfjs',
-            maxFaces: 1,
-            refineLandmarks: true, // Enhanced landmark detection
-          }
-        );
-  
-        console.log('Face detection model loaded successfully');
-        setIsModelLoading(false);
-      } catch (error) {
-        console.error('Error during initialization:', error);
-        setIsModelLoading(false);
-        setModelError(true);
-        setTfInitError(true);
-      }
-    };
-  
-    setupFaceDetection();
-  
-    return () => {
-      if (requestRef.current) {
-        cancelAnimationFrame(requestRef.current);
-        requestRef.current = null;
-      }
-    };
-  }, [isCameraReady]);
-  
-  // Custom shades persistence
-  useEffect(() => {
-    localStorage.setItem('customShades', JSON.stringify(customShades));
-  }, [customShades]);
+      );
+
+      console.log('Face detection model loaded successfully');
+      setIsModelLoading(false);
+    } catch (error) {
+      console.error('Error loading model:', error);
+      setIsModelLoading(false);
+      setModelError(true);
+    }
+  };
   
   // Face detection function
   const detectFaces = useCallback(async () => {
@@ -323,6 +319,11 @@ export default function FaceDetectionCamera() {
         setIsFaceDetected(hasFaces);
         
         if (hasFaces) {
+          // Extract landmarks from the first detected face
+          if (faces[0].landmarks) {
+            setDetectedFaceLandmarks(faces[0].landmarks);
+          }
+          
           consecutiveFailures.current = 0;
           const face = faces[0];
           
@@ -410,6 +411,7 @@ export default function FaceDetectionCamera() {
           }
         } else {
           consecutiveFailures.current++;
+          setDetectedFaceLandmarks([]);
           
           if (consecutiveFailures.current >= maxConsecutiveFailures) {
             // If we have consecutive failures, drop detection quality to save resources
@@ -427,6 +429,7 @@ export default function FaceDetectionCamera() {
         }
       }
     } catch (error) {
+      setDetectedFaceLandmarks([]);
       consecutiveFailures.current++;
       console.error('Error during face detection:', error);
       
@@ -485,32 +488,6 @@ export default function FaceDetectionCamera() {
     }
   };
   
-  // Setup face detection function
-  const setupFaceDetection = async () => {
-    try {
-      await tf.ready();
-      await tf.setBackend('webgl');
-      console.log('TensorFlow.js initialized with WebGL backend');
-
-      // Create the face detector with enhanced configuration
-      detector.current = await faceLandmarksDetection.createDetector(
-        faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
-        {
-          runtime: 'tfjs',
-          maxFaces: 1,
-          refineLandmarks: true, // Enhanced landmark detection
-        }
-      );
-
-      console.log('Face detection model loaded successfully');
-      setIsModelLoading(false);
-    } catch (error) {
-      console.error('Error loading model:', error);
-      setIsModelLoading(false);
-      setModelError(true);
-    }
-  };
-
   // Add fallback UI components
   const renderErrorUI = () => {
     if (cameraError) {
@@ -570,12 +547,32 @@ export default function FaceDetectionCamera() {
     return null;
   };
 
+  // Custom shades persistence
+  useEffect(() => {
+    localStorage.setItem('customShades', JSON.stringify(customShades));
+  }, [customShades]);
+
+  // Setup face detection
+  useEffect(() => {
+    if (!isCameraReady) return;
+    
+    setupFaceDetection();
+    
+    return () => {
+      if (requestRef.current) {
+        cancelAnimationFrame(requestRef.current);
+        requestRef.current = null;
+      }
+    };
+  }, [isCameraReady]);
+
   return (
     <>
       {showIntro && <IntroAnimation onComplete={() => setShowIntro(false)} />}
       <div className="relative w-full h-screen bg-gradient-to-b from-pearl-light via-rose-light/10 to-rose/5">
-        {/* Camera View */}
-        <div className="relative w-full h-[75vh]">
+        {/* Main Camera Section */}
+        <div className="relative w-full h-full">
+          {/* Camera View */}
           <div className="absolute inset-0">
             <Webcam
               ref={webcamRef}
@@ -588,13 +585,107 @@ export default function FaceDetectionCamera() {
               onUserMediaError={handleCameraError}
               forceScreenshotSourceSize={true}
             />
+            
+            {/* Concealer Overlay */}
+            {isFaceDetected && webcamRef.current?.video && detectedFaceLandmarks.length > 0 && selectedShade && (
+              <FaceOverlay
+                landmarks={detectedFaceLandmarks}
+                imageWidth={webcamRef.current.video.videoWidth}
+                imageHeight={webcamRef.current.video.videoHeight}
+                mode="livestream"
+                shade={selectedShade.color}
+                opacity={0.65}
+              />
+            )}
           </div>
           
+          {/* Face Guide Circle */}
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="relative">
+              <div className="w-64 h-64 rounded-full border-2 border-dashed border-white/50"></div>
+              {isFaceDetected && facePosition.center && (
+                <motion.div 
+                  className="w-24 h-24 bg-white/10 rounded-full absolute"
+                  animate={{
+                    x: `calc(${(facePosition.center.x - 0.5) * 200}px)`,
+                    y: `calc(${(facePosition.center.y - 0.5) * 200}px)`,
+                    scale: facePosition.isGood ? 1.2 : 1,
+                    borderColor: facePosition.isGood ? 'rgb(34, 197, 94)' : 'rgb(239, 68, 68)',
+                  }}
+                  transition={{ duration: 0.2 }}
+                  style={{
+                    borderWidth: '2px',
+                    borderStyle: 'solid',
+                    top: '50%',
+                    left: '50%',
+                    marginLeft: '-3rem',
+                    marginTop: '-3rem',
+                  }}
+                />
+              )}
+            </div>
+          </div>
+
+          {/* Status message */}
+          <div className="absolute bottom-20 left-0 right-0 text-center">
+            <div className="inline-block bg-black/50 px-4 py-2 rounded-full text-white">
+              {facePosition.message}
+            </div>
+          </div>
+          
+          {/* Selected shade indicator */}
+          {selectedShade && (
+            <div className="absolute top-4 left-4 flex items-center bg-white/90 backdrop-blur-sm px-3 py-2 rounded-full shadow-lg">
+              <div 
+                className="w-6 h-6 rounded-full mr-2"
+                style={{ backgroundColor: selectedShade.color.replace('0.6', '1') }}
+              />
+              <span className="text-sm font-medium text-neutral-800">{selectedShade.name}</span>
+            </div>
+          )}
+
+          {/* Bottom Controls */}
+          <div className="absolute bottom-0 left-0 right-0 p-4 flex justify-center">
+            <div className="flex items-center gap-4">
+              {/* Shade Selector Button */}
+              <button
+                onClick={() => setShowShadeSelector(true)}
+                className="w-12 h-12 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-lg text-neutral-700 hover:text-neutral-900 transition"
+              >
+                <ChevronUp size={24} />
+              </button>
+              
+              {/* Camera Button */}
+              <button
+                onClick={capturePhoto}
+                disabled={!facePosition.isGood}
+                className={`
+                  w-16 h-16 rounded-full flex items-center justify-center shadow-lg
+                  ${facePosition.isGood 
+                    ? 'bg-white text-neutral-900 hover:bg-neutral-100' 
+                    : 'bg-neutral-400 text-neutral-600'}
+                  transition-all
+                `}
+              >
+                <Camera size={28} />
+              </button>
+              
+              {/* Shade completion indicator */}
+              <div className="w-12 h-12 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-lg">
+                {selectedShade ? (
+                  <CheckCircle size={24} className="text-green-600" />
+                ) : (
+                  <XCircle size={24} className="text-amber-500" />
+                )}
+              </div>
+            </div>
+          </div>
+
           {/* Loading indicator */}
           {isModelLoading && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-10">
               <div className="bg-white p-6 rounded-lg">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-neutral-900 mx-auto"></div>
                 <p className="mt-4 text-center font-medium">Loading face detection model...</p>
               </div>
             </div>
@@ -602,9 +693,73 @@ export default function FaceDetectionCamera() {
 
           {/* Error UI */}
           {renderErrorUI()}
-          
-          {/* Remaining component UI code */}
         </div>
+
+        {/* Shade Selector */}
+        <AnimatePresence>
+          {showShadeSelector && (
+            <ShadeSelector 
+              onSelectShade={handleShadeSelection}
+              selectedShade={selectedShade ? {
+                id: parseInt(selectedShade.id),
+                name: selectedShade.name,
+                category: 'Medium' as const, // Default category, adjust as needed
+                colorHex: selectedShade.color.replace(/rgba\((\d+),\s*(\d+),\s*(\d+).*/, (_, r, g, b) => {
+                  // Convert RGB back to hex
+                  return `#${parseInt(r).toString(16).padStart(2, '0')}${parseInt(g).toString(16).padStart(2, '0')}${parseInt(b).toString(16).padStart(2, '0')}`;
+                })
+              } : null}
+              onClose={() => setShowShadeSelector(false)}
+            />
+          )}
+        </AnimatePresence>
+
+        {/* Photo Preview */}
+        <AnimatePresence>
+          {showPhotoPreview && lastCapturedPhoto && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              className="fixed inset-0 bg-black/80 z-50 flex flex-col"
+            >
+              <div className="flex-1 flex items-center justify-center p-4">
+                <div className="relative max-w-md w-full aspect-[3/4] rounded-lg overflow-hidden">
+                  <Image
+                    src={lastCapturedPhoto.imageUrl}
+                    alt="Captured photo"
+                    fill
+                    className="object-cover"
+                  />
+                </div>
+              </div>
+              <div className="h-32 bg-white p-4 flex justify-between items-center">
+                <button
+                  onClick={() => setShowPhotoPreview(false)}
+                  className="px-4 py-2 bg-neutral-200 text-neutral-800 rounded-lg hover:bg-neutral-300 transition"
+                >
+                  Back to Camera
+                </button>
+                <div className="flex items-center">
+                  {lastCapturedPhoto.shade && (
+                    <>
+                      <div 
+                        className="w-6 h-6 rounded-full mr-2"
+                        style={{ backgroundColor: lastCapturedPhoto.shade.color.replace('0.6', '1') }}
+                      />
+                      <span className="text-sm font-medium mr-4">{lastCapturedPhoto.shade.name}</span>
+                    </>
+                  )}
+                  <button
+                    className="px-4 py-2 bg-neutral-900 text-white rounded-lg hover:bg-neutral-800 transition"
+                  >
+                    Save Image
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </>
   );
