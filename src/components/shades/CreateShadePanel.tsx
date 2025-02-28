@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { X, Mix, Check } from 'lucide-react';
+import { X, Palette, Check } from 'lucide-react';
 import { Shade } from '@/types/shades';
 
 interface Props {
@@ -114,7 +114,7 @@ export default function CreateShadePanel({ onClose, onCreateShade, existingShade
           
           {/* Selection Instructions */}
           <div className="bg-neutral-50 rounded-lg p-3 mb-4 flex items-center">
-            <Mix size={18} className="text-neutral-500 mr-2 flex-shrink-0" />
+            <Palette size={18} className="text-neutral-500 mr-2 flex-shrink-0" />
             <p className="text-sm text-neutral-600">
               Select up to {maxSelection} shades to blend together (selected: {selectedShades.length}/{maxSelection})
             </p>

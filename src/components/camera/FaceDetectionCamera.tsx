@@ -6,14 +6,16 @@ import * as tf from '@tensorflow/tfjs-core';
 import '@tensorflow/tfjs-backend-webgl';
 import * as faceLandmarksDetection from '@tensorflow-models/face-landmarks-detection';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, AlertCircle, Palette } from 'lucide-react';
+import { Camera, AlertCircle, Palette, RefreshCw } from 'lucide-react';
 import FaceOverlay from './FaceOverlay';
 import FaceInstructions from './FaceInstructions';
 import FaceGuide from './FaceGuide';
 import StatusIndicators from './StatusIndicators';
 import ShadeSwiper from '../shades/ShadeSwiper';
+import ShadeOpacityControl from '../shades/ShadeOpacityControl';
 import CreateShadePanel from '../shades/CreateShadePanel';
-import { Shade, SHADE_DATA } from '@/types/shades';
+import { Shade } from '@/types/shades';
+import { SHADE_DATA } from '@/data/ShadeData';
 import { useFaceDetectionStore } from '@/store/FaceDetectionStore';
 
 interface FacePosition {
@@ -47,10 +49,12 @@ export default function FaceDetectionCamera() {
   const [facePosition, setFacePosition] = useState<FacePosition>({ isGood: false, message: 'Align your face in the circle' });
   const [selectedShade, setSelectedShade] = useState<Shade | null>(null);
   const [isCreateShadeOpen, setIsCreateShadeOpen] = useState(false);
+  const [isOpacityControlOpen, setIsOpacityControlOpen] = useState(false);
   const [customShades, setCustomShades] = useState<Shade[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isCameraInitialized, setIsCameraInitialized] = useState(false);
   const [opacity, setOpacity] = useState(0.65);
+  const [retryCount, setRetryCount] = useState(0);
   const { isFaceDetected, setFaceDetected } = useFaceDetectionStore();
   
   // Video dimensions state
@@ -73,7 +77,12 @@ export default function FaceDetectionCamera() {
   useEffect(() => {
     const initializeTensorFlow = async () => {
       try {
+        // Wait for backend initialization
+        await tf.ready();
         await tf.setBackend('webgl');
+        console.log('TensorFlow backend initialized:', tf.getBackend());
+        
+        // Setup face detection with automatic retry
         await setupFaceDetection();
       } catch (error) {
         console.error('Failed to initialize TensorFlow:', error);
@@ -89,7 +98,7 @@ export default function FaceDetectionCamera() {
         model.dispose();
       }
     };
-  }, []);
+  }, [retryCount]);
 
   const handleUserMedia = useCallback(() => {
     setIsCameraInitialized(true);
@@ -113,18 +122,29 @@ export default function FaceDetectionCamera() {
     try {
       setIsModelLoading(true);
       
-      // Using the latest TensorFlow.js face-landmarks-detection model
-      const model = await faceLandmarksDetection.load(
+      // Clear any existing model
+      if (model) {
+        model.dispose();
+      }
+      
+      // Configure MediaPipe FaceMesh model with latest API
+      const modelConfig = {
+        runtime: 'tfjs' as const,
+        refineLandmarks: true,
+        maxFaces: 1
+      };
+      
+      // Create a detector using the FaceLandmarksDetection API
+      console.log('Creating face detector...');
+      const detector = await faceLandmarksDetection.createDetector(
         faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
-        {
-          runtime: 'tfjs',
-          refineLandmarks: true,
-          maxFaces: 1
-        }
+        modelConfig
       );
       
-      setModel(model);
+      console.log('Face detector created successfully');
+      setModel(detector);
       setIsModelLoading(false);
+      setError(null);
       
       // Start detection loop once model is loaded
       if (isCameraInitialized) {
@@ -132,8 +152,8 @@ export default function FaceDetectionCamera() {
       }
     } catch (error) {
       console.error('Failed to load face detection model:', error);
-      setError('Failed to load face detection model. Please try again.');
       setIsModelLoading(false);
+      setError('Failed to load face detection model. Please try again.');
     }
   };
 
@@ -149,21 +169,32 @@ export default function FaceDetectionCamera() {
         return;
       }
       
-      // Perform face detection
-      const faces = await model.estimateFaces({
-        input: video,
-        returnTensors: false,
-        flipHorizontal: false,
-        predictIrises: true
-      });
+      // Perform face detection using the correct API parameters
+      const faces = await model.estimateFaces(video);
       
       if (faces && faces.length > 0) {
+        // Convert to our DetectedFace format
         const face = faces[0];
-        setDetectedFace(face as DetectedFace);
+        const detectedFace: DetectedFace = {
+          box: {
+            xMin: face.box.xMin,
+            yMin: face.box.yMin,
+            width: face.box.width,
+            height: face.box.height
+          },
+          landmarks: face.keypoints.map(kp => ({ 
+            x: kp.x / video.videoWidth, 
+            y: kp.y / video.videoHeight,
+            z: (kp as any).z || 0
+          })),
+          boundingBox: face.box as any
+        };
+        
+        setDetectedFace(detectedFace);
         setFaceDetected(true);
         
         // Check face position
-        checkFacePosition(face as DetectedFace);
+        checkFacePosition(detectedFace);
       } else {
         setDetectedFace(null);
         setFaceDetected(false);
@@ -171,6 +202,7 @@ export default function FaceDetectionCamera() {
       }
     } catch (error) {
       console.error('Error in face detection:', error);
+      // Don't set error state to avoid interrupting the loop
     }
     
     // Continue detection loop
@@ -256,11 +288,11 @@ export default function FaceDetectionCamera() {
       // Create hex color
       const blendedHex = `#${avgR.toString(16).padStart(2, '0')}${avgG.toString(16).padStart(2, '0')}${avgB.toString(16).padStart(2, '0')}`;
       
-      // Create new custom shade
+      // Create new custom shade - using the allowed categories from SHADE_DATA
       const newShade: Shade = {
         id: Date.now(),
         name,
-        category: 'Custom',
+        category: 'Medium', // Default to a valid category
         colorHex: blendedHex
       };
       
@@ -291,18 +323,32 @@ export default function FaceDetectionCamera() {
     return { r, g, b };
   };
 
+  const handleRetryModelLoading = () => {
+    setRetryCount(prev => prev + 1);
+    setError(null);
+  };
+
   if (error) {
     return (
       <div className="min-h-screen bg-neutral-900 flex flex-col items-center justify-center p-4 text-white">
         <AlertCircle size={48} className="text-red-500 mb-4" />
         <h2 className="text-xl font-semibold mb-2">Camera Error</h2>
         <p className="text-center mb-6">{error}</p>
-        <button
-          onClick={() => window.location.reload()}
-          className="bg-white text-neutral-900 font-medium px-6 py-2 rounded-full"
-        >
-          Try Again
-        </button>
+        <div className="flex gap-4">
+          <button
+            onClick={handleRetryModelLoading}
+            className="bg-neutral-700 text-white font-medium px-6 py-2 rounded-full flex items-center"
+          >
+            <RefreshCw size={16} className="mr-2" />
+            Retry Loading
+          </button>
+          <button
+            onClick={() => window.location.reload()}
+            className="bg-white text-neutral-900 font-medium px-6 py-2 rounded-full"
+          >
+            Reload App
+          </button>
+        </div>
       </div>
     );
   }
@@ -319,8 +365,9 @@ export default function FaceDetectionCamera() {
               exit={{ opacity: 0 }}
               className="absolute inset-0 z-20 bg-neutral-900 flex flex-col items-center justify-center"
             >
-              <div className="w-16 h-16 border-4 border-t-gold border-neutral-500 rounded-full animate-spin mb-4" />
+              <div className="w-16 h-16 border-4 border-t-neutral-400 border-neutral-700 rounded-full animate-spin mb-4" />
               <p className="text-white font-medium">Loading face detection...</p>
+              <p className="text-neutral-400 text-sm mt-2">This may take a moment</p>
             </motion.div>
           )}
         </AnimatePresence>
@@ -400,18 +447,31 @@ export default function FaceDetectionCamera() {
             <span>Custom</span>
           </button>
           
-          {/* Opacity Control */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-neutral-500">Opacity</span>
-            <input
-              type="range"
-              min="0.2"
-              max="1"
-              step="0.05"
-              value={opacity}
-              onChange={(e) => setOpacity(parseFloat(e.target.value))}
-              className="w-24"
-            />
+          {/* Opacity Control Button */}
+          <div className="relative">
+            <button
+              onClick={() => setIsOpacityControlOpen(!isOpacityControlOpen)}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-neutral-100"
+            >
+              <span className="text-xs font-medium">{Math.round(opacity * 100)}%</span>
+            </button>
+            
+            {/* Opacity Control Panel */}
+            <AnimatePresence>
+              {isOpacityControlOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  className="absolute bottom-full mb-2 right-0 z-30 w-64"
+                >
+                  <ShadeOpacityControl
+                    opacity={opacity}
+                    onOpacityChange={setOpacity}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
           
           {/* Capture Button */}
@@ -422,7 +482,7 @@ export default function FaceDetectionCamera() {
               ${
                 !isFaceDetected || !facePosition.isGood || !selectedShade
                   ? 'bg-neutral-200 text-neutral-400'
-                  : 'bg-gold text-white shadow-lg'
+                  : 'bg-neutral-800 text-white shadow-lg'
               }
             `}
           >
