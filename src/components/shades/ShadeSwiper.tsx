@@ -2,54 +2,70 @@
 
 import React, { useState } from 'react';
 import { Swiper, SwiperSlide } from 'swiper/react';
-import { FreeMode, Pagination } from 'swiper/modules';
-import { Shade, SHADE_DATA, ShadeCategory } from '@/types/shades';
+import { FreeMode, Pagination, Navigation } from 'swiper/modules';
+import { Shade } from '@/types/shades';
+import { SHADE_DATA } from '@/data/ShadeData';
 
 // Import Swiper styles
 import 'swiper/css';
 import 'swiper/css/free-mode';
 import 'swiper/css/pagination';
+import 'swiper/css/navigation';
 
 interface Props {
   onSelectShade: (shade: Shade) => void;
   selectedShade?: Shade | null;
+  customShades?: Shade[];
 }
 
-export default function ShadeSwiper({ onSelectShade, selectedShade }: Props) {
-  const [activeCategory, setActiveCategory] = useState<ShadeCategory>('Fair');
-  const categories: ShadeCategory[] = ['Fair', 'Light', 'Medium', 'Medium Deep', 'Deep'];
-
+export default function ShadeSwiper({ onSelectShade, selectedShade, customShades = [] }: Props) {
+  const [activeCategory, setActiveCategory] = useState<'Default' | 'Custom'>('Default');
+  const categories = ['Fair', 'Light', 'Medium', 'Medium Deep', 'Deep'];
+  
   // Filter shades by active category
-  const shades = SHADE_DATA.filter(shade => shade.category === activeCategory);
+  const shades = activeCategory === 'Custom' 
+    ? customShades 
+    : SHADE_DATA;
 
   return (
     <div className="h-full flex flex-col">
       {/* Category Selector */}
-      <div className="flex overflow-x-auto pb-2 pt-1 px-4 gap-2 no-scrollbar">
-        {categories.map((category) => (
+      <div className="flex space-x-2 pb-3 px-4 overflow-x-auto hide-scrollbar">
+        <button
+          onClick={() => setActiveCategory('Default')}
+          className={`
+            whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-medium transition-colors flex-shrink-0
+            ${activeCategory === 'Default' 
+              ? 'bg-neutral-900 text-white shadow-md' 
+              : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+            }
+          `}
+        >
+          Default Shades
+        </button>
+        {customShades.length > 0 && (
           <button
-            key={category}
-            onClick={() => setActiveCategory(category)}
+            onClick={() => setActiveCategory('Custom')}
             className={`
-              whitespace-nowrap px-3 py-1 rounded-full text-xs font-medium transition-colors
-              ${activeCategory === category 
-                ? 'bg-neutral-800 text-white shadow-md' 
+              whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-medium transition-colors flex-shrink-0
+              ${activeCategory === 'Custom' 
+                ? 'bg-neutral-900 text-white shadow-md' 
                 : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
               }
             `}
           >
-            {category}
+            My Shades
           </button>
-        ))}
+        )}
       </div>
       
       {/* Shades Swiper */}
       <div className="flex-1 px-2 pb-2">
         <Swiper
-          modules={[FreeMode, Pagination]}
+          modules={[FreeMode, Pagination, Navigation]}
           freeMode={{
             enabled: true,
-            sticky: false,
+            sticky: true,
             momentumRatio: 0.25
           }}
           pagination={{
@@ -57,28 +73,30 @@ export default function ShadeSwiper({ onSelectShade, selectedShade }: Props) {
             dynamicBullets: true,
             dynamicMainBullets: 3
           }}
-          spaceBetween={10}
-          slidesPerView={3.5}
+          spaceBetween={8}
+          slidesPerView={4.5}
           breakpoints={{
-            640: { slidesPerView: 5 },
-            768: { slidesPerView: 6 },
-            1024: { slidesPerView: 8 }
+            320: { slidesPerView: 4.5, spaceBetween: 8 },
+            480: { slidesPerView: 5.5, spaceBetween: 10 },
+            640: { slidesPerView: 6.5, spaceBetween: 12 },
+            768: { slidesPerView: 7, spaceBetween: 12 },
+            1024: { slidesPerView: 9, spaceBetween: 14 }
           }}
-          className="h-full"
+          className="h-full w-full"
         >
           {shades.map((shade) => (
             <SwiperSlide key={shade.id} className="h-full flex items-center">
               <button
                 onClick={() => onSelectShade(shade)}
                 className={`
-                  w-full h-16 rounded-lg flex flex-col items-center justify-center transition-all
+                  w-full aspect-square rounded-lg flex flex-col items-center justify-center transition-all
                   ${selectedShade?.id === shade.id 
                     ? 'ring-2 ring-neutral-900 shadow-md transform scale-105' 
                     : 'hover:bg-neutral-50 hover:shadow'
                   }
                 `}
                 style={{
-                  backgroundColor: `${shade.colorHex}50`
+                  backgroundColor: `${shade.colorHex}40`
                 }}
               >
                 <div 
@@ -88,7 +106,7 @@ export default function ShadeSwiper({ onSelectShade, selectedShade }: Props) {
                     border: '1px solid rgba(0,0,0,0.1)'
                   }}
                 />
-                <span className="text-[10px] font-medium text-neutral-800 truncate max-w-full px-2">
+                <span className="text-[10px] font-medium text-neutral-800 truncate max-w-full px-1">
                   {shade.name}
                 </span>
               </button>

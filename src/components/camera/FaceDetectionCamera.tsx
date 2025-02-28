@@ -6,7 +6,7 @@ import * as tf from '@tensorflow/tfjs-core';
 import '@tensorflow/tfjs-backend-webgl';
 import * as faceLandmarksDetection from '@tensorflow-models/face-landmarks-detection';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, AlertCircle, Palette, RefreshCw } from 'lucide-react';
+import { Camera, AlertCircle, Palette, RefreshCw, Repeat, Sliders, Settings, PlusCircle, XCircle } from 'lucide-react';
 import FaceOverlay from './FaceOverlay';
 import FaceInstructions from './FaceInstructions';
 import FaceGuide from './FaceGuide';
@@ -55,6 +55,7 @@ export default function FaceDetectionCamera() {
   const [isCameraInitialized, setIsCameraInitialized] = useState(false);
   const [opacity, setOpacity] = useState(0.65);
   const [retryCount, setRetryCount] = useState(0);
+  const [isCameraMirrored, setIsCameraMirrored] = useState(true);
   const { isFaceDetected, setFaceDetected } = useFaceDetectionStore();
   
   // Video dimensions state
@@ -99,6 +100,31 @@ export default function FaceDetectionCamera() {
       }
     };
   }, [retryCount]);
+
+  // Save custom shades to localStorage when they change
+  useEffect(() => {
+    if (customShades.length > 0) {
+      try {
+        localStorage.setItem('customShades', JSON.stringify(customShades));
+      } catch (error) {
+        console.error('Failed to save custom shades:', error);
+      }
+    }
+  }, [customShades]);
+
+  // Handle window resize to maintain aspect ratio
+  useEffect(() => {
+    const handleResize = () => {
+      if (webcamRef.current && webcamRef.current.video) {
+        const video = webcamRef.current.video;
+        setVideoWidth(video.videoWidth);
+        setVideoHeight(video.videoHeight);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const handleUserMedia = useCallback(() => {
     setIsCameraInitialized(true);
@@ -216,116 +242,137 @@ export default function FaceDetectionCamera() {
     }
   }, [isCameraInitialized, model, isModelLoading, detectFaceLoop]);
 
+  // Check face position relative to the guide
   const checkFacePosition = (face: DetectedFace) => {
-    if (!webcamRef.current || !webcamRef.current.video) return;
+    const { box } = face;
     
-    const video = webcamRef.current.video;
-    const { width, height } = video.getBoundingClientRect();
+    // Calculate the center of the face
+    const centerX = (box.xMin + box.xMin + box.width) / 2;
+    const centerY = (box.yMin + box.yMin + box.height) / 2;
     
-    // Calculate face position relative to camera frame
-    const centerX = face.box.xMin + face.box.width / 2;
-    const centerY = face.box.yMin + face.box.height / 2;
-    const boxArea = face.box.width * face.box.height;
-    const frameArea = width * height;
+    // Get dimensions
+    const videoWidth = webcamRef.current?.video?.videoWidth || 640;
+    const videoHeight = webcamRef.current?.video?.videoHeight || 480;
     
-    // Calculate center point of face relative to frame (0-1)
-    const relativeCenterX = centerX / width;
-    const relativeCenterY = centerY / height;
+    // Normalize coordinates to 0-1 range
+    const normalizedX = centerX / videoWidth;
+    const normalizedY = centerY / videoHeight;
     
-    // Calculate face size relative to frame
-    const relativeSize = boxArea / frameArea;
-    
-    // Determine if face position is good for makeup application
+    // Check if the face is well-positioned (near center)
     const isGoodPosition = 
-      relativeCenterX > 0.4 && relativeCenterX < 0.6 &&  // Centered horizontally
-      relativeCenterY > 0.4 && relativeCenterY < 0.6 &&  // Centered vertically
-      relativeSize > 0.1;                                // Face is large enough
+      normalizedX > 0.35 && normalizedX < 0.65 && 
+      normalizedY > 0.35 && normalizedY < 0.65;
     
-    // Update face position state
+    // Set message based on position
+    let message = 'Position your face within the circle';
+    
     if (isGoodPosition) {
-      setFacePosition({ 
-        isGood: true, 
-        message: 'Perfect! Keep still.',
-        center: { x: relativeCenterX, y: relativeCenterY }
-      });
-    } else {
-      let message = 'Move your face to the center';
-      
-      if (relativeSize < 0.1) {
-        message = 'Move closer to the camera';
-      } else if (relativeCenterX <= 0.4) {
-        message = 'Move your face to the right';
-      } else if (relativeCenterX >= 0.6) {
-        message = 'Move your face to the left';
-      } else if (relativeCenterY <= 0.4) {
-        message = 'Move your face down';
-      } else if (relativeCenterY >= 0.6) {
-        message = 'Move your face up';
-      }
-      
-      setFacePosition({
-        isGood: false,
-        message,
-        center: { x: relativeCenterX, y: relativeCenterY }
-      });
+      message = 'Perfect! Face detected';
+    } else if (normalizedX < 0.4) {
+      message = 'Move your face right';
+    } else if (normalizedX > 0.6) {
+      message = 'Move your face left';
+    } else if (normalizedY < 0.4) {
+      message = 'Move your face down';
+    } else if (normalizedY > 0.6) {
+      message = 'Move your face up';
     }
+    
+    setFacePosition({
+      isGood: isGoodPosition,
+      message,
+      center: { x: normalizedX, y: normalizedY }
+    });
+    
+    return isGoodPosition;
   };
 
+  // Apply shade to face
   const handleShadeSelection = (shade: Shade) => {
     setSelectedShade(shade);
+    setIsCreateShadeOpen(false); // Close create panel if open
   };
 
+  // Create a custom shade from blended shades
   const createCustomShade = (name: string, blendedShades: Shade[]) => {
-    try {
-      // Calculate blended color
-      const rgbValues = blendedShades.map(shade => hexToRgbObj(shade.colorHex));
-      
-      // Average the RGB values
-      const avgR = Math.round(rgbValues.reduce((sum, rgb) => sum + rgb.r, 0) / rgbValues.length);
-      const avgG = Math.round(rgbValues.reduce((sum, rgb) => sum + rgb.g, 0) / rgbValues.length);
-      const avgB = Math.round(rgbValues.reduce((sum, rgb) => sum + rgb.b, 0) / rgbValues.length);
-      
-      // Create hex color
-      const blendedHex = `#${avgR.toString(16).padStart(2, '0')}${avgG.toString(16).padStart(2, '0')}${avgB.toString(16).padStart(2, '0')}`;
-      
-      // Create new custom shade - using the allowed categories from SHADE_DATA
-      const newShade: Shade = {
-        id: Date.now(),
-        name,
-        category: 'Medium', // Default to a valid category
-        colorHex: blendedHex
+    if (blendedShades.length === 0) return;
+    
+    // Calculate average RGB color from the selected shades
+    const rgbValues = blendedShades.map(shade => {
+      const hex = shade.colorHex.replace('#', '');
+      return {
+        r: parseInt(hex.substring(0, 2), 16),
+        g: parseInt(hex.substring(2, 4), 16),
+        b: parseInt(hex.substring(4, 6), 16)
       };
-      
-      // Update custom shades
-      const updatedCustomShades = [...customShades, newShade];
-      setCustomShades(updatedCustomShades);
-      setSelectedShade(newShade);
-      
-      // Save to localStorage
-      localStorage.setItem('customShades', JSON.stringify(updatedCustomShades));
-      
-      // Close custom shade panel
-      setIsCreateShadeOpen(false);
-    } catch (error) {
-      console.error('Failed to create custom shade:', error);
-    }
+    });
+    
+    const avgR = Math.round(rgbValues.reduce((sum, rgb) => sum + rgb.r, 0) / rgbValues.length);
+    const avgG = Math.round(rgbValues.reduce((sum, rgb) => sum + rgb.g, 0) / rgbValues.length);
+    const avgB = Math.round(rgbValues.reduce((sum, rgb) => sum + rgb.b, 0) / rgbValues.length);
+    
+    const blendedColorHex = `#${avgR.toString(16).padStart(2, '0')}${avgG.toString(16).padStart(2, '0')}${avgB.toString(16).padStart(2, '0')}`;
+    
+    // Create a new custom shade
+    const newShade: Shade = {
+      id: Date.now(), // Use timestamp as ID
+      name,
+      category: 'Custom' as any, // Add Custom to the ShadeCategory type
+      colorHex: blendedColorHex
+    };
+    
+    // Add to custom shades
+    const updatedShades = [...customShades, newShade];
+    setCustomShades(updatedShades);
+    
+    // Auto-select the new shade
+    setSelectedShade(newShade);
+    
+    // Close the create panel
+    setIsCreateShadeOpen(false);
   };
 
-  const hexToRgbObj = (hex: string) => {
-    // Remove # if present
-    const cleanHex = hex.replace('#', '');
-    
-    // Parse hex values to RGB
-    const r = parseInt(cleanHex.substring(0, 2), 16);
-    const g = parseInt(cleanHex.substring(2, 4), 16);
-    const b = parseInt(cleanHex.substring(4, 6), 16);
-    
-    return { r, g, b };
-  };
-
+  // Retry loading the model
   const handleRetryModelLoading = () => {
-    setRetryCount(prev => prev + 1);
     setError(null);
+    setIsModelLoading(true);
+    setRetryCount(retryCount + 1);
+  };
+
+  // Toggle camera mirroring
+  const toggleCameraMirroring = () => {
+    setIsCameraMirrored(!isCameraMirrored);
+  };
+
+  // Calculate responsive dimensions
+  const calculateResponsiveDimensions = () => {
+    if (!webcamRef.current || !webcamRef.current.video) {
+      return { width: '100%', height: 'auto', padding: 0 };
+    }
+    
+    const video = webcamRef.current.video;
+    const videoRatio = video.videoWidth / video.videoHeight;
+    const windowWidth = window.innerWidth;
+    const windowHeight = window.innerHeight;
+    const windowRatio = windowWidth / windowHeight;
+    
+    if (windowRatio > videoRatio) {
+      // Window is wider than video
+      const height = Math.min(windowHeight, windowWidth / videoRatio);
+      return { 
+        width: height * videoRatio, 
+        height, 
+        padding: `0 ${(windowWidth - (height * videoRatio)) / 2}px` 
+      };
+    } else {
+      // Window is taller than video
+      const width = Math.min(windowWidth, windowHeight * videoRatio);
+      return { 
+        width, 
+        height: width / videoRatio, 
+        padding: `${(windowHeight - (width / videoRatio)) / 2}px 0` 
+      };
+    }
   };
 
   if (error) {
@@ -354,144 +401,158 @@ export default function FaceDetectionCamera() {
   }
 
   return (
-    <div className="min-h-screen bg-neutral-900 flex flex-col">
-      {/* Main Camera View */}
-      <div className="flex-1 relative overflow-hidden">
-        {/* Loading Indicator */}
+    <div className="relative flex flex-col h-[100dvh] bg-black overflow-hidden">
+      {/* Camera View with Face Detection */}
+      <div className="relative flex-1 flex items-center justify-center overflow-hidden bg-black">
+        {/* Webcam */}
+        <Webcam
+          ref={webcamRef}
+          audio={false}
+          screenshotFormat="image/jpeg"
+          videoConstraints={{
+            facingMode: 'user',
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          }}
+          mirrored={isCameraMirrored}
+          className="absolute max-h-full max-w-full object-contain z-10"
+          onUserMedia={(stream) => {
+            setIsCameraInitialized(true);
+            // Get video dimensions once the camera is initialized
+            const video = webcamRef.current?.video;
+            if (video) {
+              setVideoWidth(video.videoWidth);
+              setVideoHeight(video.videoHeight);
+            }
+          }}
+        />
+        
+        {/* Loading/Error Overlay */}
         <AnimatePresence>
-          {isModelLoading && (
-            <motion.div
-              initial={{ opacity: 1 }}
+          {(isModelLoading || error) && (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 z-20 bg-neutral-900 flex flex-col items-center justify-center"
+              className="absolute inset-0 bg-black/80 z-50 flex flex-col items-center justify-center p-6 text-center"
             >
-              <div className="w-16 h-16 border-4 border-t-neutral-400 border-neutral-700 rounded-full animate-spin mb-4" />
-              <p className="text-white font-medium">Loading face detection...</p>
-              <p className="text-neutral-400 text-sm mt-2">This may take a moment</p>
+              {isModelLoading && !error && (
+                <>
+                  <div className="animate-spin w-12 h-12 border-4 border-white/20 border-t-white rounded-full mb-6"></div>
+                  <h2 className="text-white text-lg font-medium mb-2">Setting Up Face Detection</h2>
+                  <p className="text-neutral-400 text-sm mb-4">This may take a moment...</p>
+                </>
+              )}
+              
+              {error && (
+                <>
+                  <div className="w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center mb-6">
+                    <AlertCircle size={24} className="text-red-500" />
+                  </div>
+                  <h2 className="text-white text-lg font-medium mb-2">Face Detection Error</h2>
+                  <p className="text-neutral-400 text-sm mb-4">{error}</p>
+                  <button
+                    onClick={handleRetryModelLoading}
+                    className="px-4 py-2 bg-white text-black rounded-full font-medium flex items-center"
+                  >
+                    <RefreshCw size={16} className="mr-2" />
+                    Retry
+                  </button>
+                </>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
         
-        {/* Camera & Face Overlay Container */}
-        <div className="relative h-full w-full flex items-center justify-center">
-          {/* Webcam */}
-          <Webcam
-            ref={webcamRef}
-            audio={false}
-            screenshotFormat="image/jpeg"
-            videoConstraints={{
-              facingMode: 'user',
-              aspectRatio: 3/4,
-            }}
-            onUserMedia={handleUserMedia}
-            onUserMediaError={handleCameraError}
-            className="h-full w-full object-cover"
+        {/* Face Detection UI Elements */}
+        {!isModelLoading && !error && (
+          <>
+            {/* Canvas for face overlay */}
+            <canvas
+              ref={canvasRef}
+              className={`absolute top-0 left-0 z-20 ${isFaceDetected ? 'opacity-100' : 'opacity-0'}`}
+              style={{
+                width: videoWidth > 0 ? '100%' : '640px',
+                height: videoHeight > 0 ? 'auto' : '480px',
+              }}
+            />
+            
+            {/* Face Detection Guides */}
+            <FaceGuide facePosition={facePosition} isFaceDetected={isFaceDetected} />
+            <FaceInstructions 
+              message={facePosition.message} 
+              isGoodPosition={facePosition.isGood} 
+              isFaceDetected={isFaceDetected}
+            />
+            
+            {/* Control Icons */}
+            <div className="absolute top-4 left-4 z-30 flex space-x-3">
+              <button
+                onClick={toggleCameraMirroring}
+                className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center text-white hover:bg-black/60 transition"
+              >
+                <Repeat size={18} />
+              </button>
+              <button
+                onClick={() => setIsOpacityControlOpen(!isOpacityControlOpen)}
+                className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center text-white hover:bg-black/60 transition"
+              >
+                <Sliders size={18} />
+              </button>
+            </div>
+          </>
+        )}
+        
+        {/* Face Overlay with Selected Shade */}
+        {selectedShade && isFaceDetected && detectedFace && (
+          <FaceOverlay
+            landmarks={detectedFace.landmarks}
+            imageWidth={videoWidth}
+            imageHeight={videoHeight}
+            mode="livestream"
+            shade={selectedShade.colorHex}
+            opacity={opacity}
           />
-          
-          {/* Face Overlay */}
-          {detectedFace && detectedFace.landmarks && selectedShade && (
-            <FaceOverlay
-              landmarks={detectedFace.landmarks}
-              imageWidth={videoWidth}
-              imageHeight={videoHeight}
-              mode="livestream"
-              shade={selectedShade.colorHex}
+        )}
+        
+        {/* Opacity Control */}
+        <AnimatePresence>
+          {isOpacityControlOpen && (
+            <ShadeOpacityControl
               opacity={opacity}
+              setOpacity={setOpacity}
+              onClose={() => setIsOpacityControlOpen(false)}
             />
           )}
-          
-          {/* Face Guide */}
-          <FaceGuide 
-            facePosition={facePosition} 
-            isFaceDetected={isFaceDetected}
-          />
-          
-          {/* Status Indicators */}
-          <StatusIndicators
-            isModelLoaded={!isModelLoading && model !== null}
-            isCameraInitialized={isCameraInitialized}
-            isFaceDetected={isFaceDetected}
-          />
-          
-          {/* Face Instructions */}
-          <FaceInstructions
-            message={facePosition.message}
-            isGoodPosition={facePosition.isGood}
-          />
-        </div>
+        </AnimatePresence>
       </div>
       
-      {/* Bottom Navigation Bar */}
-      <div className="bg-white border-t border-neutral-200">
-        {/* Instructions */}
-        <div className="px-4 py-2 text-center text-sm text-neutral-600">
-          Select a concealer shade below to try it on
-        </div>
-        
-        {/* Shade Swiper */}
-        <div className="h-24">
-          <ShadeSwiper
-            onSelectShade={handleShadeSelection}
-            selectedShade={selectedShade}
-          />
-        </div>
-        
-        {/* Bottom Controls */}
-        <div className="flex items-center justify-between p-4 pb-safe">
-          {/* Custom Shade Button */}
-          <button
-            onClick={() => setIsCreateShadeOpen(true)}
-            className="flex items-center justify-center gap-2 px-4 py-2 rounded-full bg-neutral-100 text-neutral-800"
-          >
-            <Palette size={18} />
-            <span>Custom</span>
-          </button>
-          
-          {/* Opacity Control Button */}
-          <div className="relative">
-            <button
-              onClick={() => setIsOpacityControlOpen(!isOpacityControlOpen)}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-neutral-100"
-            >
-              <span className="text-xs font-medium">{Math.round(opacity * 100)}%</span>
-            </button>
-            
-            {/* Opacity Control Panel */}
-            <AnimatePresence>
-              {isOpacityControlOpen && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 10 }}
-                  className="absolute bottom-full mb-2 right-0 z-30 w-64"
-                >
-                  <ShadeOpacityControl
-                    opacity={opacity}
-                    onOpacityChange={setOpacity}
-                  />
-                </motion.div>
-              )}
-            </AnimatePresence>
+      {/* Bottom Shade Selection & Controls */}
+      <div className="bg-white border-t border-neutral-200 min-h-[120px] sm:min-h-[150px] z-40">
+        <div className="flex items-stretch h-full">
+          {/* Shades Swiper */}
+          <div className="flex-1 overflow-hidden">
+            <ShadeSwiper 
+              onSelectShade={handleShadeSelection}
+              selectedShade={selectedShade}
+              customShades={customShades}
+            />
           </div>
           
-          {/* Capture Button */}
-          <button
-            disabled={!isFaceDetected || !facePosition.isGood || !selectedShade}
-            className={`
-              rounded-full p-3
-              ${
-                !isFaceDetected || !facePosition.isGood || !selectedShade
-                  ? 'bg-neutral-200 text-neutral-400'
-                  : 'bg-neutral-800 text-white shadow-lg'
-              }
-            `}
-          >
-            <Camera size={24} />
-          </button>
+          {/* Create Custom Shade Button */}
+          <div className="w-16 border-l border-neutral-200 flex flex-col items-center justify-center">
+            <button
+              onClick={() => setIsCreateShadeOpen(true)}
+              className="flex flex-col items-center justify-center w-full h-full p-2 hover:bg-neutral-50 transition"
+            >
+              <PlusCircle size={24} className="mb-1 text-neutral-700" />
+              <span className="text-[10px] text-center text-neutral-600 font-medium">Create Shade</span>
+            </button>
+          </div>
         </div>
       </div>
       
-      {/* Create Custom Shade Panel */}
+      {/* Create Shade Panel */}
       <AnimatePresence>
         {isCreateShadeOpen && (
           <CreateShadePanel

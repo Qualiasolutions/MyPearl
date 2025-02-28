@@ -13,6 +13,10 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true
   },
+  // Add output export for static site generation
+  output: 'export',
+  // Set output directory
+  distDir: 'out',
   webpack: (config) => {
     // Add node polyfills
     config.resolve.fallback = {
@@ -33,6 +37,7 @@ const nextConfig = {
         hostname: '**',
       },
     ],
+    unoptimized: true, // Required for static export
     // Allow base64 image URLs
     domains: ['localhost'],
     dangerouslyAllowSVG: true,
