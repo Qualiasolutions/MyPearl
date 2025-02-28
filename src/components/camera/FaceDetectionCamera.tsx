@@ -11,11 +11,13 @@ import 'swiper/css';
 import 'swiper/css/navigation';
 import 'swiper/css/pagination';
 import IntroAnimation from '../intro/IntroAnimation';
-import { Camera, AlertCircle, RefreshCw, ChevronUp, CheckCircle, XCircle } from 'lucide-react';
+import { Camera, AlertCircle, RefreshCw, ChevronUp, CheckCircle, XCircle, Palette } from 'lucide-react';
 import Image from 'next/image';
 import FaceOverlay from './FaceOverlay';
 import ShadeSelector from '../shades/ShadeSelector';
+import CreateShadePanel from '../shades/CreateShadePanel';
 import type { Shade as ShadeType } from '@/types/shades';
+import { SHADE_DATA } from '@/types/shades';
 
 interface FacePosition {
   isGood: boolean;
@@ -566,6 +568,58 @@ export default function FaceDetectionCamera() {
     };
   }, [isCameraReady]);
 
+  // Add a custom shade creation function
+  const createCustomShade = (name: string, blendedShades: ShadeType[]) => {
+    // Convert the imported shade types to our local shade format
+    const blendedFrom = blendedShades.map(shade => ({
+      id: shade.id.toString(),
+      name: shade.name,
+      color: `rgba(${hexToRgb(shade.colorHex)}, 0.6)`
+    }));
+    
+    // Generate a simple color blend based on the selected shades
+    // This is a simple average of the color components
+    const hexToRgbObj = (hex: string) => {
+      hex = hex.replace('#', '');
+      return {
+        r: parseInt(hex.substring(0, 2), 16),
+        g: parseInt(hex.substring(2, 4), 16),
+        b: parseInt(hex.substring(4, 6), 16)
+      };
+    };
+    
+    const rgbColors = blendedShades.map(shade => hexToRgbObj(shade.colorHex));
+    const blended = rgbColors.reduce((acc, color) => {
+      return {
+        r: acc.r + color.r,
+        g: acc.g + color.g,
+        b: acc.b + color.b
+      };
+    }, { r: 0, g: 0, b: 0 });
+    
+    const r = Math.round(blended.r / rgbColors.length);
+    const g = Math.round(blended.g / rgbColors.length);
+    const b = Math.round(blended.b / rgbColors.length);
+    
+    // Create a new custom shade with a unique ID
+    const newCustomShade: CustomShade = {
+      id: `custom-${Date.now()}`,
+      name,
+      color: `rgba(${r}, ${g}, ${b}, 0.6)`,
+      isCustom: true,
+      blendedFrom
+    };
+    
+    // Add to the custom shades array
+    setCustomShades(prev => [...prev, newCustomShade]);
+    
+    // Select the new shade
+    setSelectedShade(newCustomShade);
+    
+    // Hide the shade creation UI
+    setShowCreateShade(false);
+  };
+
   return (
     <>
       {showIntro && <IntroAnimation onComplete={() => setShowIntro(false)} />}
@@ -645,8 +699,8 @@ export default function FaceDetectionCamera() {
           )}
 
           {/* Bottom Controls */}
-          <div className="absolute bottom-0 left-0 right-0 p-4 flex justify-center">
-            <div className="flex items-center gap-4">
+          <div className="absolute bottom-0 left-0 right-0 p-4 pb-8 sm:pb-4 flex justify-center z-10 pointer-events-auto">
+            <div className="flex items-center gap-4 bg-black/20 backdrop-blur-sm p-2 rounded-full shadow-lg">
               {/* Shade Selector Button */}
               <button
                 onClick={() => setShowShadeSelector(true)}
@@ -670,14 +724,13 @@ export default function FaceDetectionCamera() {
                 <Camera size={28} />
               </button>
               
-              {/* Shade completion indicator */}
-              <div className="w-12 h-12 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-lg">
-                {selectedShade ? (
-                  <CheckCircle size={24} className="text-green-600" />
-                ) : (
-                  <XCircle size={24} className="text-amber-500" />
-                )}
-              </div>
+              {/* Create Custom Shade Button */}
+              <button
+                onClick={() => setShowCreateShade(true)}
+                className="w-12 h-12 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-lg text-neutral-700 hover:text-neutral-900 transition"
+              >
+                <Palette size={24} />
+              </button>
             </div>
           </div>
 
@@ -701,7 +754,7 @@ export default function FaceDetectionCamera() {
             <ShadeSelector 
               onSelectShade={handleShadeSelection}
               selectedShade={selectedShade ? {
-                id: parseInt(selectedShade.id),
+                id: parseInt(selectedShade.id) || 1,
                 name: selectedShade.name,
                 category: 'Medium' as const, // Default category, adjust as needed
                 colorHex: selectedShade.color.replace(/rgba\((\d+),\s*(\d+),\s*(\d+).*/, (_, r, g, b) => {
@@ -758,6 +811,17 @@ export default function FaceDetectionCamera() {
                 </div>
               </div>
             </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Custom Shade Creator */}
+        <AnimatePresence>
+          {showCreateShade && (
+            <CreateShadePanel 
+              shades={SHADE_DATA}
+              onCreateShade={createCustomShade}
+              onClose={() => setShowCreateShade(false)}
+            />
           )}
         </AnimatePresence>
       </div>

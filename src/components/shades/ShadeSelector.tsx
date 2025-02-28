@@ -29,10 +29,10 @@ export default function ShadeSelector({ onSelectShade, selectedShade, onClose }:
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 20 }}
-      className="fixed inset-x-0 bottom-0 z-50 bg-white/95 backdrop-blur-sm border-t border-neutral-200 rounded-t-3xl shadow-xl"
-      style={{ maxHeight: '60vh' }}
+      className="fixed inset-x-0 bottom-0 z-50 bg-white/95 backdrop-blur-sm border-t border-neutral-200 rounded-t-3xl shadow-xl pb-safe"
+      style={{ maxHeight: '80vh' }}
     >
-      <div className="flex flex-col h-full max-h-[60vh]">
+      <div className="flex flex-col h-full max-h-[80vh]">
         {/* Drag handle */}
         <div className="py-3 flex justify-center">
           <div className="w-12 h-1 bg-neutral-300 rounded-full" />
@@ -113,7 +113,7 @@ export default function ShadeSelector({ onSelectShade, selectedShade, onClose }:
         </div>
         
         {/* Action buttons */}
-        <div className="p-4 border-t border-neutral-200">
+        <div className="p-4 pb-8 sm:pb-4 border-t border-neutral-200">
           <div className="flex gap-3">
             {onClose && (
               <button
