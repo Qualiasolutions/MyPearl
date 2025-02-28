@@ -6,7 +6,7 @@ import * as tf from '@tensorflow/tfjs-core';
 import '@tensorflow/tfjs-backend-webgl';
 import * as faceLandmarksDetection from '@tensorflow-models/face-landmarks-detection';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, AlertCircle, Palette, RefreshCw, Repeat, Sliders, Settings, PlusCircle, XCircle } from 'lucide-react';
+import { Camera, AlertCircle, Palette, RefreshCw, Repeat, Sliders, Settings, PlusCircle, XCircle, Download, X } from 'lucide-react';
 import FaceOverlay from './FaceOverlay';
 import FaceInstructions from './FaceInstructions';
 import FaceGuide from './FaceGuide';
@@ -61,6 +61,9 @@ export default function FaceDetectionCamera() {
   // Video dimensions state
   const [videoWidth, setVideoWidth] = useState(0);
   const [videoHeight, setVideoHeight] = useState(0);
+  
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [showCaptureModal, setShowCaptureModal] = useState(false);
   
   // Load custom shades from localStorage
   useEffect(() => {
@@ -375,6 +378,33 @@ export default function FaceDetectionCamera() {
     }
   };
 
+  // Capture current frame
+  const captureImage = useCallback(() => {
+    if (webcamRef.current && isFaceDetected && facePosition.isGood) {
+      const imageSrc = webcamRef.current.getScreenshot();
+      setCapturedImage(imageSrc);
+      setShowCaptureModal(true);
+    }
+  }, [webcamRef, isFaceDetected, facePosition.isGood]);
+
+  // Download captured image
+  const downloadImage = useCallback(() => {
+    if (capturedImage) {
+      const link = document.createElement('a');
+      link.href = capturedImage;
+      link.download = `shade-try-on-${Date.now()}.jpg`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  }, [capturedImage]);
+
+  // Close capture modal
+  const closeCaptureModal = useCallback(() => {
+    setShowCaptureModal(false);
+    setCapturedImage(null);
+  }, []);
+
   if (error) {
     return (
       <div className="min-h-screen bg-neutral-900 flex flex-col items-center justify-center p-4 text-white">
@@ -411,11 +441,11 @@ export default function FaceDetectionCamera() {
           screenshotFormat="image/jpeg"
           videoConstraints={{
             facingMode: 'user',
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
           }}
           mirrored={isCameraMirrored}
-          className="absolute max-h-full max-w-full object-contain z-10"
+          className="absolute w-full h-full object-cover z-10"
           onUserMedia={(stream) => {
             setIsCameraInitialized(true);
             // Get video dimensions once the camera is initialized
@@ -470,11 +500,7 @@ export default function FaceDetectionCamera() {
             {/* Canvas for face overlay */}
             <canvas
               ref={canvasRef}
-              className={`absolute top-0 left-0 z-20 ${isFaceDetected ? 'opacity-100' : 'opacity-0'}`}
-              style={{
-                width: videoWidth > 0 ? '100%' : '640px',
-                height: videoHeight > 0 ? 'auto' : '480px',
-              }}
+              className={`absolute top-0 left-0 z-20 w-full h-full ${isFaceDetected ? 'opacity-100' : 'opacity-0'}`}
             />
             
             {/* Face Detection Guides */}
@@ -500,6 +526,22 @@ export default function FaceDetectionCamera() {
                 <Sliders size={18} />
               </button>
             </div>
+            
+            {/* Capture Button */}
+            <div className="absolute bottom-28 left-1/2 -translate-x-1/2 z-30">
+              <button
+                onClick={captureImage}
+                disabled={!isFaceDetected || !facePosition.isGood || !selectedShade}
+                className={`
+                  w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all
+                  ${(!isFaceDetected || !facePosition.isGood || !selectedShade)
+                    ? 'bg-neutral-700/50 text-neutral-400 cursor-not-allowed'
+                    : 'bg-white text-black hover:bg-neutral-200 active:scale-95'}
+                `}
+              >
+                <Camera size={28} />
+              </button>
+            </div>
           </>
         )}
         
@@ -523,6 +565,46 @@ export default function FaceDetectionCamera() {
               setOpacity={setOpacity}
               onClose={() => setIsOpacityControlOpen(false)}
             />
+          )}
+        </AnimatePresence>
+        
+        {/* Captured Image Modal */}
+        <AnimatePresence>
+          {showCaptureModal && capturedImage && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 z-50 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center p-6"
+            >
+              <div className="bg-white rounded-xl overflow-hidden shadow-2xl max-w-md w-full">
+                <div className="p-4 border-b border-neutral-200 flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-neutral-800">Captured Image</h3>
+                  <button 
+                    onClick={closeCaptureModal}
+                    className="p-2 text-neutral-400 hover:text-neutral-700 rounded-full"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+                <div className="p-4">
+                  <img 
+                    src={capturedImage} 
+                    alt="Captured" 
+                    className="w-full h-auto rounded-lg shadow-md mb-4" 
+                  />
+                  <div className="flex justify-end">
+                    <button
+                      onClick={downloadImage}
+                      className="flex items-center gap-2 px-4 py-2 bg-neutral-900 text-white rounded-lg hover:bg-neutral-800 transition"
+                    >
+                      <Download size={16} />
+                      Save Image
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
           )}
         </AnimatePresence>
       </div>
