@@ -11,7 +11,7 @@ import 'swiper/css';
 import 'swiper/css/navigation';
 import 'swiper/css/pagination';
 import IntroAnimation from '../intro/IntroAnimation';
-import { Camera } from 'lucide-react';
+import { Camera, AlertCircle, RefreshCw } from 'lucide-react';
 import Image from 'next/image';
 
 interface FacePosition {
@@ -173,6 +173,9 @@ export default function FaceDetectionCamera() {
   const [isCameraReady, setIsCameraReady] = useState(false);
   const [isModelLoading, setIsModelLoading] = useState(true);
   const [modelError, setModelError] = useState(false);
+  const [cameraError, setCameraError] = useState(false);
+  const [cameraErrorMessage, setCameraErrorMessage] = useState('');
+  const [tfInitError, setTfInitError] = useState(false);
   const [isFaceDetected, setIsFaceDetected] = useState(false);
   const [facePosition, setFacePosition] = useState<FacePosition>({
     isGood: false,
@@ -209,20 +212,47 @@ export default function FaceDetectionCamera() {
   };
   
   const handleUserMedia = () => {
+    console.log("Camera is ready and accessible");
     setIsCameraReady(true);
+    setCameraError(false);
   };
   
   const handleCameraError = (error: string | DOMException) => {
     console.error('Camera error:', error);
+    setIsCameraReady(false);
+    setCameraError(true);
+    setCameraErrorMessage(
+      typeof error === 'string' 
+        ? error 
+        : error.message || 'Failed to access camera'
+    );
   };
   
   // Setup face detection
   useEffect(() => {
+    if (!isCameraReady) return;
+    
     const setupFaceDetection = async () => {
       try {
-        await tf.ready();
-        await tf.setBackend('webgl');
-        console.log('TensorFlow.js initialized with WebGL backend');
+        // Add timeout to prevent unending loading state
+        const tfReadyPromise = Promise.race([
+          tf.ready(),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('TensorFlow initialization timeout')), 15000)
+          )
+        ]);
+        
+        await tfReadyPromise;
+        console.log('TensorFlow.js ready');
+        
+        try {
+          await tf.setBackend('webgl');
+          console.log('WebGL backend initialized');
+        } catch (backendError) {
+          console.warn('WebGL backend failed, falling back to CPU', backendError);
+          await tf.setBackend('cpu');
+          console.log('CPU backend initialized');
+        }
   
         // Create the face detector with enhanced configuration
         detector.current = await faceLandmarksDetection.createDetector(
@@ -237,15 +267,14 @@ export default function FaceDetectionCamera() {
         console.log('Face detection model loaded successfully');
         setIsModelLoading(false);
       } catch (error) {
-        console.error('Error loading model:', error);
+        console.error('Error during initialization:', error);
         setIsModelLoading(false);
         setModelError(true);
+        setTfInitError(true);
       }
     };
   
-    if (isCameraReady) {
-      setupFaceDetection();
-    }
+    setupFaceDetection();
   
     return () => {
       if (requestRef.current) {
@@ -482,6 +511,101 @@ export default function FaceDetectionCamera() {
     }
   };
 
-  // Rest of the component implementation...
-  // The rest of the UI render code would go here
+  // Add fallback UI components
+  const renderErrorUI = () => {
+    if (cameraError) {
+      return (
+        <div className="fixed inset-0 flex items-center justify-center bg-black z-50">
+          <div className="bg-white p-6 rounded-lg max-w-md text-center">
+            <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+            <h2 className="text-xl font-bold text-red-500 mb-2">Camera Access Error</h2>
+            <p className="mb-4">{cameraErrorMessage || 'Could not access your camera. Please check your permissions and try again.'}</p>
+            <button 
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+            >
+              <RefreshCw className="h-4 w-4 inline mr-1" /> Retry
+            </button>
+          </div>
+        </div>
+      );
+    }
+    
+    if (tfInitError) {
+      return (
+        <div className="fixed inset-0 flex items-center justify-center bg-black z-50">
+          <div className="bg-white p-6 rounded-lg max-w-md text-center">
+            <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+            <h2 className="text-xl font-bold text-red-500 mb-2">TensorFlow Error</h2>
+            <p className="mb-4">Failed to initialize TensorFlow.js. This could be due to browser compatibility issues or insufficient resources.</p>
+            <button 
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+            >
+              <RefreshCw className="h-4 w-4 inline mr-1" /> Retry
+            </button>
+          </div>
+        </div>
+      );
+    }
+    
+    if (modelError) {
+      return (
+        <div className="fixed inset-0 flex items-center justify-center bg-black z-50">
+          <div className="bg-white p-6 rounded-lg max-w-md text-center">
+            <AlertCircle className="h-12 w-12 text-amber-500 mx-auto mb-4" />
+            <h2 className="text-xl font-bold text-amber-500 mb-2">Model Loading Error</h2>
+            <p className="mb-4">Failed to load the face detection model. Please check your internet connection and try again.</p>
+            <button 
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+            >
+              <RefreshCw className="h-4 w-4 inline mr-1" /> Retry
+            </button>
+          </div>
+        </div>
+      );
+    }
+    
+    return null;
+  };
+
+  return (
+    <>
+      {showIntro && <IntroAnimation onComplete={() => setShowIntro(false)} />}
+      <div className="relative w-full h-screen bg-gradient-to-b from-pearl-light via-rose-light/10 to-rose/5">
+        {/* Camera View */}
+        <div className="relative w-full h-[75vh]">
+          <div className="absolute inset-0">
+            <Webcam
+              ref={webcamRef}
+              className="w-full h-full object-cover"
+              mirrored
+              audio={false}
+              screenshotFormat="image/jpeg"
+              videoConstraints={videoConstraints}
+              onUserMedia={handleUserMedia}
+              onUserMediaError={handleCameraError}
+              forceScreenshotSourceSize={true}
+            />
+          </div>
+          
+          {/* Loading indicator */}
+          {isModelLoading && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-10">
+              <div className="bg-white p-6 rounded-lg">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+                <p className="mt-4 text-center font-medium">Loading face detection model...</p>
+              </div>
+            </div>
+          )}
+
+          {/* Error UI */}
+          {renderErrorUI()}
+          
+          {/* Remaining component UI code */}
+        </div>
+      </div>
+    </>
+  );
 }

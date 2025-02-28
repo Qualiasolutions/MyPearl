@@ -1,4 +1,5 @@
-const { createServer } = require('https');
+const { createServer: createHttpsServer } = require('https');
+const { createServer: createHttpServer } = require('http');
 const { parse } = require('url');
 const next = require('next');
 const fs = require('fs');
@@ -9,10 +10,8 @@ const dev = process.env.NODE_ENV !== 'production';
 const app = next({ dev });
 const handle = app.getRequestHandler();
 
-const httpsOptions = {
-  key: fs.readFileSync(path.join(__dirname, 'certificates', 'localhost.key')),
-  cert: fs.readFileSync(path.join(__dirname, 'certificates', 'localhost.crt')),
-};
+// Set to false to use HTTP, true to use HTTPS
+const useHttps = false;
 
 // Function to check if a port is in use
 const isPortInUse = (port) => {
@@ -46,13 +45,30 @@ app.prepare().then(async () => {
   try {
     const port = await findAvailablePort(3000);
     
-    createServer(httpsOptions, (req, res) => {
-      const parsedUrl = parse(req.url, true);
-      handle(req, res, parsedUrl);
-    }).listen(port, (err) => {
-      if (err) throw err;
-      console.log(`> Ready on https://localhost:${port}`);
-    });
+    if (useHttps) {
+      // HTTPS Server (with certificate)
+      const httpsOptions = {
+        key: fs.readFileSync(path.join(__dirname, 'certificates', 'localhost.key')),
+        cert: fs.readFileSync(path.join(__dirname, 'certificates', 'localhost.crt')),
+      };
+      
+      createHttpsServer(httpsOptions, (req, res) => {
+        const parsedUrl = parse(req.url, true);
+        handle(req, res, parsedUrl);
+      }).listen(port, (err) => {
+        if (err) throw err;
+        console.log(`> Ready on https://localhost:${port}`);
+      });
+    } else {
+      // HTTP Server (no certificate needed)
+      createHttpServer((req, res) => {
+        const parsedUrl = parse(req.url, true);
+        handle(req, res, parsedUrl);
+      }).listen(port, (err) => {
+        if (err) throw err;
+        console.log(`> Ready on http://localhost:${port}`);
+      });
+    }
   } catch (error) {
     console.error('Server startup error:', error);
     process.exit(1);
