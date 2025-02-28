@@ -10,7 +10,9 @@
     "lint": "next lint",
     "generate-certs": "node scripts/generate-certificates.js",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "deploy": "node deploy-netlify.js",
+    "deploy:prod": "netlify deploy --prod"
   },
   "dependencies": {
     "@tensorflow-models/face-landmarks-detection": "^1.0.5",
@@ -27,6 +29,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
+    "@netlify/plugin-nextjs": "^5.9.4",
     "@testing-library/jest-dom": "^6.4.2",
     "@testing-library/react": "^14.2.1",
     "@testing-library/user-event": "^14.5.2",
