@@ -43,6 +43,7 @@ interface DetectedFace {
 export default function FaceDetectionCamera() {
   const webcamRef = useRef<Webcam>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const requestAnimationRef = useRef<number>();
   const [isModelLoading, setIsModelLoading] = useState(true);
   const [model, setModel] = useState<faceLandmarksDetection.FaceLandmarksDetector | null>(null);
   const [detectedFace, setDetectedFace] = useState<DetectedFace | null>(null);
@@ -68,580 +69,585 @@ export default function FaceDetectionCamera() {
   // Load custom shades from localStorage
   useEffect(() => {
     try {
-      const storedShades = localStorage.getItem('customShades');
-      if (storedShades) {
-        setCustomShades(JSON.parse(storedShades));
+      const savedShades = localStorage.getItem('customShades');
+      if (savedShades) {
+        setCustomShades(JSON.parse(savedShades));
       }
-    } catch (error) {
-      console.error('Failed to load custom shades:', error);
+    } catch (err) {
+      console.error('Error loading custom shades:', err);
     }
-  }, []);
-
-  // Initialize TensorFlow.js and the face detection model
-  useEffect(() => {
-    const initializeTensorFlow = async () => {
-      try {
-        // Wait for backend initialization
-        await tf.ready();
-        await tf.setBackend('webgl');
-        console.log('TensorFlow backend initialized:', tf.getBackend());
-        
-        // Setup face detection with automatic retry
-        await setupFaceDetection();
-      } catch (error) {
-        console.error('Failed to initialize TensorFlow:', error);
-        setError('Failed to initialize face detection. Please check your device compatibility.');
+    
+    return () => {
+      // Clean up animation frame on unmount
+      if (requestAnimationRef.current) {
+        cancelAnimationFrame(requestAnimationRef.current);
       }
     };
-
+  }, []);
+  
+  // Initialize TensorFlow and load the face detection model
+  useEffect(() => {
     initializeTensorFlow();
     
-    // Cleanup function
-    return () => {
-      if (model) {
-        model.dispose();
-      }
-    };
-  }, [retryCount]);
-
-  // Save custom shades to localStorage when they change
-  useEffect(() => {
-    if (customShades.length > 0) {
-      try {
-        localStorage.setItem('customShades', JSON.stringify(customShades));
-      } catch (error) {
-        console.error('Failed to save custom shades:', error);
-      }
-    }
-  }, [customShades]);
-
-  // Handle window resize to maintain aspect ratio
-  useEffect(() => {
-    const handleResize = () => {
-      if (webcamRef.current && webcamRef.current.video) {
-        const video = webcamRef.current.video;
-        setVideoWidth(video.videoWidth);
-        setVideoHeight(video.videoHeight);
-      }
-    };
-
+    // Handle window resize
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
   }, []);
-
-  const handleUserMedia = useCallback(() => {
-    setIsCameraInitialized(true);
-    setError(null);
-    
-    // Set video dimensions for better face detection
-    if (webcamRef.current && webcamRef.current.video) {
-      const video = webcamRef.current.video;
-      setVideoWidth(video.videoWidth);
-      setVideoHeight(video.videoHeight);
+  
+  // Calculate responsive dimensions when camera is initialized
+  useEffect(() => {
+    if (isCameraInitialized) {
+      calculateResponsiveDimensions();
     }
-  }, []);
-
-  const handleCameraError = useCallback((error: string | DOMException) => {
-    console.error('Camera error:', error);
-    setError(typeof error === 'string' ? error : 'Failed to access camera. Please check permissions.');
-    setIsCameraInitialized(false);
-  }, []);
-
-  const setupFaceDetection = async () => {
+  }, [isCameraInitialized]);
+  
+  const initializeTensorFlow = async () => {
     try {
       setIsModelLoading(true);
+      setError(null);
       
-      // Clear any existing model
-      if (model) {
-        model.dispose();
+      // Ensure TensorFlow.js is initialized with WebGL backend
+      await tf.setBackend('webgl');
+      await tf.ready();
+      
+      // Load face detection model more efficiently
+      await setupFaceDetection();
+      
+      setIsModelLoading(false);
+    } catch (err) {
+      console.error('Error initializing TensorFlow:', err);
+      setError('Failed to initialize face detection. Please try again or check your device compatibility.');
+      setIsModelLoading(false);
+    }
+  };
+  
+  // Handle window resize and recalculate dimensions
+  const handleResize = useCallback(() => {
+    if (isCameraInitialized) {
+      calculateResponsiveDimensions();
+    }
+  }, [isCameraInitialized]);
+  
+  // Calculate responsive dimensions based on window size
+  const calculateResponsiveDimensions = useCallback(() => {
+    if (!webcamRef.current || !webcamRef.current.video) return;
+    
+    const video = webcamRef.current.video;
+    const videoAspectRatio = video.videoWidth / video.videoHeight;
+    
+    let newWidth, newHeight;
+    
+    // Check if we're on mobile (portrait orientation)
+    const isMobile = window.innerWidth < 768;
+    
+    if (isMobile) {
+      // Use nearly full width on mobile, maintain aspect ratio
+      newWidth = Math.min(window.innerWidth * 0.95, 480);
+      newHeight = newWidth / videoAspectRatio;
+      
+      // Make sure height isn't too tall for the viewport
+      if (newHeight > window.innerHeight * 0.6) {
+        newHeight = window.innerHeight * 0.6;
+        newWidth = newHeight * videoAspectRatio;
       }
+    } else {
+      // On desktop, use reasonable dimensions
+      newWidth = Math.min(window.innerWidth * 0.7, 640);
+      newHeight = newWidth / videoAspectRatio;
       
-      // Configure MediaPipe FaceMesh model with latest API
-      const modelConfig = {
-        runtime: 'tfjs' as const,
+      // Make sure height isn't too tall for the viewport
+      if (newHeight > window.innerHeight * 0.7) {
+        newHeight = window.innerHeight * 0.7;
+        newWidth = newHeight * videoAspectRatio;
+      }
+    }
+    
+    setVideoWidth(newWidth);
+    setVideoHeight(newHeight);
+    
+    // Update canvas dimensions to match
+    if (canvasRef.current) {
+      canvasRef.current.width = newWidth;
+      canvasRef.current.height = newHeight;
+    }
+  }, []);
+  
+  const setupFaceDetection = async () => {
+    try {
+      // Load the MediaPipe FaceMesh model for more accurate facial landmark detection
+      const model = faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh;
+      const detectorConfig = {
+        runtime: 'tfjs',
         refineLandmarks: true,
         maxFaces: 1
       };
       
-      // Create a detector using the FaceLandmarksDetection API
-      console.log('Creating face detector...');
       const detector = await faceLandmarksDetection.createDetector(
-        faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
-        modelConfig
+        model,
+        detectorConfig
       );
       
-      console.log('Face detector created successfully');
       setModel(detector);
-      setIsModelLoading(false);
-      setError(null);
       
-      // Start detection loop once model is loaded
-      if (isCameraInitialized) {
-        detectFaceLoop();
+      if (webcamRef.current && webcamRef.current.video) {
+        setIsCameraInitialized(true);
+        
+        // Start detection loop using requestAnimationFrame for better performance
+        startFaceDetection(detector);
       }
-    } catch (error) {
-      console.error('Failed to load face detection model:', error);
+    } catch (err) {
+      console.error('Error setting up face detection:', err);
+      setError('Failed to setup face detection. Please refresh the page or try a different browser.');
       setIsModelLoading(false);
-      setError('Failed to load face detection model. Please try again.');
     }
   };
-
-  const detectFaceLoop = useCallback(async () => {
-    if (!webcamRef.current || !webcamRef.current.video || !model) return;
-    
-    try {
-      const video = webcamRef.current.video;
-      
-      // Check if video is ready
-      if (video.readyState !== 4) {
-        requestAnimationFrame(detectFaceLoop);
-        return;
+  
+  // Face detection loop using requestAnimationFrame
+  const startFaceDetection = useCallback(async (detector: faceLandmarksDetection.FaceLandmarksDetector) => {
+    const detectFace = async () => {
+      if (
+        webcamRef.current &&
+        webcamRef.current.video &&
+        webcamRef.current.video.readyState === 4
+      ) {
+        try {
+          const video = webcamRef.current.video;
+          
+          // Perform face detection
+          const faces = await detector.estimateFaces(video);
+          
+          if (faces && faces.length > 0) {
+            // Extract face data
+            const face = faces[0];
+            
+            // Convert to our DetectedFace format
+            const detectedFace: DetectedFace = {
+              box: {
+                xMin: face.box.xMin,
+                yMin: face.box.yMin,
+                width: face.box.width,
+                height: face.box.height,
+                xMax: face.box.xMin + face.box.width,
+                yMax: face.box.yMin + face.box.height
+              },
+              landmarks: face.keypoints as any
+            };
+            
+            setDetectedFace(detectedFace);
+            setFaceDetected(true);
+            
+            // Check if face is positioned correctly
+            checkFacePosition(detectedFace);
+          } else {
+            setFaceDetected(false);
+            setFacePosition({ isGood: false, message: 'No face detected' });
+          }
+        } catch (err) {
+          console.error('Error in face detection loop:', err);
+        }
       }
       
-      // Perform face detection using the correct API parameters
-      const faces = await model.estimateFaces(video);
-      
-      if (faces && faces.length > 0) {
-        // Convert to our DetectedFace format
-        const face = faces[0];
-        const detectedFace: DetectedFace = {
-          box: {
-            xMin: face.box.xMin,
-            yMin: face.box.yMin,
-            width: face.box.width,
-            height: face.box.height
-          },
-          landmarks: face.keypoints.map(kp => ({ 
-            x: kp.x / video.videoWidth, 
-            y: kp.y / video.videoHeight,
-            z: (kp as any).z || 0
-          })),
-          boundingBox: face.box as any
-        };
-        
-        setDetectedFace(detectedFace);
-        setFaceDetected(true);
-        
-        // Check face position
-        checkFacePosition(detectedFace);
-      } else {
-        setDetectedFace(null);
-        setFaceDetected(false);
-        setFacePosition({ isGood: false, message: 'No face detected' });
-      }
-    } catch (error) {
-      console.error('Error in face detection:', error);
-      // Don't set error state to avoid interrupting the loop
-    }
+      // Continue detection loop
+      requestAnimationRef.current = requestAnimationFrame(detectFace);
+    };
     
-    // Continue detection loop
-    requestAnimationFrame(detectFaceLoop);
-  }, [model, setFaceDetected]);
-
-  // Start detection loop when camera is initialized and model is loaded
-  useEffect(() => {
-    if (isCameraInitialized && model && !isModelLoading) {
-      detectFaceLoop();
-    }
-  }, [isCameraInitialized, model, isModelLoading, detectFaceLoop]);
-
-  // Check face position relative to the guide
+    // Start the detection loop
+    detectFace();
+  }, [setFaceDetected]);
+  
+  // Analyze face position and provide feedback
   const checkFacePosition = (face: DetectedFace) => {
-    const { box } = face;
+    if (!webcamRef.current || !webcamRef.current.video) return;
     
-    // Calculate the center of the face
-    const centerX = (box.xMin + box.xMin + box.width) / 2;
-    const centerY = (box.yMin + box.yMin + box.height) / 2;
+    const video = webcamRef.current.video;
+    const videoWidth = video.videoWidth;
+    const videoHeight = video.videoHeight;
     
-    // Get dimensions
-    const videoWidth = webcamRef.current?.video?.videoWidth || 640;
-    const videoHeight = webcamRef.current?.video?.videoHeight || 480;
+    // Calculate center of face
+    const faceX = face.box.xMin + face.box.width / 2;
+    const faceY = face.box.yMin + face.box.height / 2;
     
-    // Normalize coordinates to 0-1 range
-    const normalizedX = centerX / videoWidth;
-    const normalizedY = centerY / videoHeight;
+    // Calculate center of video
+    const centerX = videoWidth / 2;
+    const centerY = videoHeight / 2;
     
-    // Check if the face is well-positioned (near center)
-    const isGoodPosition = 
-      normalizedX > 0.35 && normalizedX < 0.65 && 
-      normalizedY > 0.35 && normalizedY < 0.65;
+    // Calculate distance from center (normalized by video dimensions)
+    const distanceX = Math.abs(faceX - centerX) / videoWidth;
+    const distanceY = Math.abs(faceY - centerY) / videoHeight;
     
-    // Set message based on position
-    let message = 'Position your face within the circle';
+    // Calculate face size relative to video
+    const faceSize = (face.box.width * face.box.height) / (videoWidth * videoHeight);
     
-    if (isGoodPosition) {
-      message = 'Perfect! Face detected';
-    } else if (normalizedX < 0.4) {
-      message = 'Move your face right';
-    } else if (normalizedX > 0.6) {
-      message = 'Move your face left';
-    } else if (normalizedY < 0.4) {
-      message = 'Move your face down';
-    } else if (normalizedY > 0.6) {
-      message = 'Move your face up';
+    let isGood = false;
+    let message = '';
+    
+    // Check if face is centered and at a good size
+    if (distanceX > 0.15) {
+      message = faceX < centerX ? 'Move right' : 'Move left';
+    } else if (distanceY > 0.15) {
+      message = faceY < centerY ? 'Move down' : 'Move up';
+    } else if (faceSize < 0.05) {
+      message = 'Move closer';
+    } else if (faceSize > 0.35) {
+      message = 'Move farther away';
+    } else {
+      isGood = true;
+      message = 'Perfect! Face aligned';
     }
     
     setFacePosition({
-      isGood: isGoodPosition,
+      isGood,
       message,
-      center: { x: normalizedX, y: normalizedY }
+      center: { x: faceX, y: faceY }
     });
-    
-    return isGoodPosition;
   };
-
-  // Apply shade to face
+  
+  // Handle shade selection
   const handleShadeSelection = (shade: Shade) => {
     setSelectedShade(shade);
-    setIsCreateShadeOpen(false); // Close create panel if open
   };
-
-  // Create a custom shade from blended shades
+  
+  // Create a custom shade
   const createCustomShade = (name: string, blendedShades: Shade[]) => {
-    if (blendedShades.length === 0) return;
-    
-    // Calculate average RGB color from the selected shades
-    const rgbValues = blendedShades.map(shade => {
-      const hex = shade.colorHex.replace('#', '');
-      return {
-        r: parseInt(hex.substring(0, 2), 16),
-        g: parseInt(hex.substring(2, 4), 16),
-        b: parseInt(hex.substring(4, 6), 16)
+    try {
+      // Validate input
+      if (!name || name.trim() === '') {
+        throw new Error('Please provide a name for your custom shade');
+      }
+      
+      if (!blendedShades || blendedShades.length === 0) {
+        throw new Error('Please select at least one shade to blend');
+      }
+      
+      // Create a new custom shade
+      const newShade: Shade = {
+        id: `custom-${Date.now()}`,
+        name: name.trim(),
+        color: blendedShades.length > 1 
+          ? 'linear-gradient(to right, ' + blendedShades.map(s => s.color).join(', ') + ')'
+          : blendedShades[0].color,
+        isCustom: true,
+        blendedFrom: blendedShades.map(s => s.id)
       };
-    });
-    
-    const avgR = Math.round(rgbValues.reduce((sum, rgb) => sum + rgb.r, 0) / rgbValues.length);
-    const avgG = Math.round(rgbValues.reduce((sum, rgb) => sum + rgb.g, 0) / rgbValues.length);
-    const avgB = Math.round(rgbValues.reduce((sum, rgb) => sum + rgb.b, 0) / rgbValues.length);
-    
-    const blendedColorHex = `#${avgR.toString(16).padStart(2, '0')}${avgG.toString(16).padStart(2, '0')}${avgB.toString(16).padStart(2, '0')}`;
-    
-    // Create a new custom shade
-    const newShade: Shade = {
-      id: Date.now(), // Use timestamp as ID
-      name,
-      category: 'Custom' as any, // Add Custom to the ShadeCategory type
-      colorHex: blendedColorHex
-    };
-    
-    // Add to custom shades
-    const updatedShades = [...customShades, newShade];
-    setCustomShades(updatedShades);
-    
-    // Auto-select the new shade
-    setSelectedShade(newShade);
-    
-    // Close the create panel
-    setIsCreateShadeOpen(false);
+      
+      // Update custom shades state
+      const updatedShades = [...customShades, newShade];
+      setCustomShades(updatedShades);
+      
+      // Save to localStorage
+      localStorage.setItem('customShades', JSON.stringify(updatedShades));
+      
+      // Select the new shade
+      setSelectedShade(newShade);
+      
+      // Close create panel
+      setIsCreateShadeOpen(false);
+      
+      return true;
+    } catch (err) {
+      console.error('Error creating custom shade:', err);
+      setError(err instanceof Error ? err.message : 'Failed to create custom shade');
+      return false;
+    }
   };
-
-  // Retry loading the model
+  
+  // Handle retry when model loading fails
   const handleRetryModelLoading = () => {
-    setError(null);
-    setIsModelLoading(true);
-    setRetryCount(retryCount + 1);
+    setRetryCount(prev => prev + 1);
+    initializeTensorFlow();
   };
-
+  
   // Toggle camera mirroring
   const toggleCameraMirroring = () => {
-    setIsCameraMirrored(!isCameraMirrored);
+    setIsCameraMirrored(prev => !prev);
   };
-
-  // Calculate responsive dimensions
-  const calculateResponsiveDimensions = () => {
-    if (!webcamRef.current || !webcamRef.current.video) {
-      return { width: '100%', height: 'auto', padding: 0 };
-    }
-    
-    const video = webcamRef.current.video;
-    const videoRatio = video.videoWidth / video.videoHeight;
-    const windowWidth = window.innerWidth;
-    const windowHeight = window.innerHeight;
-    const windowRatio = windowWidth / windowHeight;
-    
-    if (windowRatio > videoRatio) {
-      // Window is wider than video
-      const height = Math.min(windowHeight, windowWidth / videoRatio);
-      return { 
-        width: height * videoRatio, 
-        height, 
-        padding: `0 ${(windowWidth - (height * videoRatio)) / 2}px` 
-      };
-    } else {
-      // Window is taller than video
-      const width = Math.min(windowWidth, windowHeight * videoRatio);
-      return { 
-        width, 
-        height: width / videoRatio, 
-        padding: `${(windowHeight - (width / videoRatio)) / 2}px 0` 
-      };
-    }
-  };
-
-  // Capture current frame
-  const captureImage = useCallback(() => {
-    if (webcamRef.current && isFaceDetected && facePosition.isGood) {
+  
+  // Capture image
+  const captureImage = () => {
+    if (webcamRef.current) {
       const imageSrc = webcamRef.current.getScreenshot();
       setCapturedImage(imageSrc);
       setShowCaptureModal(true);
     }
-  }, [webcamRef, isFaceDetected, facePosition.isGood]);
-
+  };
+  
   // Download captured image
-  const downloadImage = useCallback(() => {
+  const downloadImage = () => {
     if (capturedImage) {
       const link = document.createElement('a');
       link.href = capturedImage;
-      link.download = `shade-try-on-${Date.now()}.jpg`;
+      link.download = `shade-tryout-${new Date().toISOString()}.png`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
     }
-  }, [capturedImage]);
-
+  };
+  
   // Close capture modal
-  const closeCaptureModal = useCallback(() => {
+  const closeModal = () => {
     setShowCaptureModal(false);
     setCapturedImage(null);
-  }, []);
-
-  if (error) {
-    return (
-      <div className="min-h-screen bg-neutral-900 flex flex-col items-center justify-center p-4 text-white">
-        <AlertCircle size={48} className="text-red-500 mb-4" />
-        <h2 className="text-xl font-semibold mb-2">Camera Error</h2>
-        <p className="text-center mb-6">{error}</p>
-        <div className="flex gap-4">
-          <button
-            onClick={handleRetryModelLoading}
-            className="bg-neutral-700 text-white font-medium px-6 py-2 rounded-full flex items-center"
-          >
-            <RefreshCw size={16} className="mr-2" />
-            Retry Loading
-          </button>
-          <button
-            onClick={() => window.location.reload()}
-            className="bg-white text-neutral-900 font-medium px-6 py-2 rounded-full"
-          >
-            Reload App
-          </button>
+  };
+  
+  // Render the component
+  return (
+    <div className="relative flex flex-col items-center justify-center min-h-screen w-full bg-gradient-to-b from-black to-gray-900 text-white overflow-hidden">
+      {/* Status indicators */}
+      <StatusIndicators 
+        isModelLoading={isModelLoading} 
+        isFaceDetected={isFaceDetected}
+        facePosition={facePosition}
+        error={error}
+      />
+      
+      {/* Main camera container */}
+      <div className="relative flex items-center justify-center w-full md:w-auto">
+        {/* Camera */}
+        <div 
+          className="relative overflow-hidden rounded-2xl shadow-xl"
+          style={{ 
+            width: videoWidth || 'auto', 
+            height: videoHeight || 'auto',
+            maxWidth: '100vw',
+            maxHeight: '70vh'
+          }}
+        >
+          {isModelLoading ? (
+            <div className="flex flex-col items-center justify-center bg-black aspect-video rounded-2xl animate-pulse">
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+              >
+                <RefreshCw size={48} className="text-white opacity-50" />
+              </motion.div>
+              <p className="mt-4 text-white/70">Loading face detection model...</p>
+            </div>
+          ) : (
+            <>
+              <Webcam
+                audio={false}
+                ref={webcamRef}
+                mirrored={isCameraMirrored}
+                screenshotFormat="image/png"
+                videoConstraints={{
+                  facingMode: "user",
+                }}
+                onUserMedia={() => setIsCameraInitialized(true)}
+                className="w-full h-full object-cover"
+                style={{
+                  transform: isCameraMirrored ? 'scaleX(-1)' : 'none',
+                }}
+              />
+              
+              {/* Face guides and overlay */}
+              <FaceGuide 
+                isModelLoading={isModelLoading} 
+                facePosition={facePosition}
+                isFaceDetected={isFaceDetected}
+              />
+              
+              {detectedFace && selectedShade && (
+                <FaceOverlay 
+                  detectedFace={detectedFace}
+                  selectedShade={selectedShade}
+                  isMirrored={isCameraMirrored}
+                  opacity={opacity}
+                />
+              )}
+            </>
+          )}
         </div>
       </div>
-    );
-  }
-
-  return (
-    <div className="relative flex flex-col h-[100dvh] bg-black overflow-hidden">
-      {/* Camera View with Face Detection */}
-      <div className="relative flex-1 flex items-center justify-center overflow-hidden bg-black">
-        {/* Webcam */}
-        <Webcam
-          ref={webcamRef}
-          audio={false}
-          screenshotFormat="image/jpeg"
-          videoConstraints={{
-            facingMode: 'user',
-            width: { ideal: 1920 },
-            height: { ideal: 1080 }
-          }}
-          mirrored={isCameraMirrored}
-          className="absolute w-full h-full object-cover z-10"
-          onUserMedia={(stream) => {
-            setIsCameraInitialized(true);
-            // Get video dimensions once the camera is initialized
-            const video = webcamRef.current?.video;
-            if (video) {
-              setVideoWidth(video.videoWidth);
-              setVideoHeight(video.videoHeight);
-            }
-          }}
-        />
-        
-        {/* Loading/Error Overlay */}
-        <AnimatePresence>
-          {(isModelLoading || error) && (
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/80 z-50 flex flex-col items-center justify-center p-6 text-center"
+      
+      {/* Controls and UI */}
+      <div className="w-full max-w-md mt-4 px-2">
+        {/* Error message */}
+        {error && (
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-4 p-3 bg-red-500/20 rounded-lg border border-red-500/30 flex items-center gap-2"
+          >
+            <AlertCircle className="text-red-400" size={20} />
+            <p className="text-sm text-red-100">{error}</p>
+            <button 
+              onClick={() => setError(null)}
+              className="ml-auto text-red-300 hover:text-red-100"
             >
-              {isModelLoading && !error && (
-                <>
-                  <div className="animate-spin w-12 h-12 border-4 border-white/20 border-t-white rounded-full mb-6"></div>
-                  <h2 className="text-white text-lg font-medium mb-2">Setting Up Face Detection</h2>
-                  <p className="text-neutral-400 text-sm mb-4">This may take a moment...</p>
-                </>
-              )}
-              
-              {error && (
-                <>
-                  <div className="w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center mb-6">
-                    <AlertCircle size={24} className="text-red-500" />
-                  </div>
-                  <h2 className="text-white text-lg font-medium mb-2">Face Detection Error</h2>
-                  <p className="text-neutral-400 text-sm mb-4">{error}</p>
-                  <button
-                    onClick={handleRetryModelLoading}
-                    className="px-4 py-2 bg-white text-black rounded-full font-medium flex items-center"
-                  >
-                    <RefreshCw size={16} className="mr-2" />
-                    Retry
-                  </button>
-                </>
-              )}
-            </motion.div>
-          )}
-        </AnimatePresence>
-        
-        {/* Face Detection UI Elements */}
-        {!isModelLoading && !error && (
-          <>
-            {/* Canvas for face overlay */}
-            <canvas
-              ref={canvasRef}
-              className={`absolute top-0 left-0 z-20 w-full h-full ${isFaceDetected ? 'opacity-100' : 'opacity-0'}`}
-            />
-            
-            {/* Face Detection Guides */}
-            <FaceGuide facePosition={facePosition} isFaceDetected={isFaceDetected} />
-            <FaceInstructions 
-              message={facePosition.message} 
-              isGoodPosition={facePosition.isGood} 
-              isFaceDetected={isFaceDetected}
-            />
-            
-            {/* Control Icons */}
-            <div className="absolute top-4 left-4 z-30 flex space-x-3">
-              <button
-                onClick={toggleCameraMirroring}
-                className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center text-white hover:bg-black/60 transition"
-              >
-                <Repeat size={18} />
-              </button>
-              <button
-                onClick={() => setIsOpacityControlOpen(!isOpacityControlOpen)}
-                className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center text-white hover:bg-black/60 transition"
-              >
-                <Sliders size={18} />
-              </button>
-            </div>
-            
-            {/* Capture Button */}
-            <div className="absolute bottom-28 left-1/2 -translate-x-1/2 z-30">
-              <button
-                onClick={captureImage}
-                disabled={!isFaceDetected || !facePosition.isGood || !selectedShade}
-                className={`
-                  w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all
-                  ${(!isFaceDetected || !facePosition.isGood || !selectedShade)
-                    ? 'bg-neutral-700/50 text-neutral-400 cursor-not-allowed'
-                    : 'bg-white text-black hover:bg-neutral-200 active:scale-95'}
-                `}
-              >
-                <Camera size={28} />
-              </button>
-            </div>
-          </>
+              <X size={16} />
+            </button>
+          </motion.div>
         )}
         
-        {/* Face Overlay with Selected Shade */}
-        {selectedShade && isFaceDetected && detectedFace && (
-          <FaceOverlay
-            landmarks={detectedFace.landmarks}
-            imageWidth={videoWidth}
-            imageHeight={videoHeight}
-            mode="livestream"
-            shade={selectedShade.colorHex}
-            opacity={opacity}
+        {/* Loading retry */}
+        {isModelLoading && retryCount < 3 && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 5 }}
+            className="mt-2 text-center"
+          >
+            <p className="text-sm text-gray-400 mb-2">Taking longer than expected?</p>
+            <button 
+              onClick={handleRetryModelLoading}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium transition-colors"
+            >
+              Retry Loading
+            </button>
+          </motion.div>
+        )}
+        
+        {/* Face instructions */}
+        {!isModelLoading && !error && (
+          <FaceInstructions 
+            isFaceDetected={isFaceDetected}
+            facePosition={facePosition}
           />
         )}
         
-        {/* Opacity Control */}
-        <AnimatePresence>
-          {isOpacityControlOpen && (
-            <ShadeOpacityControl
-              opacity={opacity}
-              setOpacity={setOpacity}
-              onClose={() => setIsOpacityControlOpen(false)}
-            />
-          )}
-        </AnimatePresence>
-        
-        {/* Captured Image Modal */}
-        <AnimatePresence>
-          {showCaptureModal && capturedImage && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 z-50 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center p-6"
-            >
-              <div className="bg-white rounded-xl overflow-hidden shadow-2xl max-w-md w-full">
-                <div className="p-4 border-b border-neutral-200 flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-neutral-800">Captured Image</h3>
-                  <button 
-                    onClick={closeCaptureModal}
-                    className="p-2 text-neutral-400 hover:text-neutral-700 rounded-full"
-                  >
-                    <X size={20} />
-                  </button>
-                </div>
-                <div className="p-4">
-                  <img 
-                    src={capturedImage} 
-                    alt="Captured" 
-                    className="w-full h-auto rounded-lg shadow-md mb-4" 
-                  />
-                  <div className="flex justify-end">
-                    <button
-                      onClick={downloadImage}
-                      className="flex items-center gap-2 px-4 py-2 bg-neutral-900 text-white rounded-lg hover:bg-neutral-800 transition"
-                    >
-                      <Download size={16} />
-                      Save Image
-                    </button>
-                  </div>
-                </div>
+        {/* Controls and shade selection */}
+        {!isModelLoading && isFaceDetected && (
+          <div className="mt-4">
+            {/* Buttons */}
+            <div className="flex justify-between items-center mb-3">
+              <div className="flex space-x-2">
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={toggleCameraMirroring}
+                  className="p-2 bg-gray-800/70 hover:bg-gray-700/70 rounded-full"
+                  title="Toggle camera mirroring"
+                >
+                  <Repeat size={20} />
+                </motion.button>
+                
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setIsOpacityControlOpen(!isOpacityControlOpen)}
+                  className={`p-2 ${isOpacityControlOpen ? 'bg-purple-600/70' : 'bg-gray-800/70 hover:bg-gray-700/70'} rounded-full`}
+                  title="Adjust opacity"
+                >
+                  <Sliders size={20} />
+                </motion.button>
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-      
-      {/* Bottom Shade Selection & Controls */}
-      <div className="bg-white border-t border-neutral-200 min-h-[120px] sm:min-h-[150px] z-40">
-        <div className="flex items-stretch h-full">
-          {/* Shades Swiper */}
-          <div className="flex-1 overflow-hidden">
+              
+              <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={captureImage}
+                disabled={!isFaceDetected || !selectedShade}
+                className={`p-3 rounded-full ${
+                  !isFaceDetected || !selectedShade
+                    ? 'bg-gray-800/50 text-gray-500 cursor-not-allowed'
+                    : 'bg-blue-600 hover:bg-blue-500'
+                }`}
+                title="Take screenshot"
+              >
+                <Camera size={24} />
+              </motion.button>
+              
+              <div className="flex space-x-2">
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setIsCreateShadeOpen(true)}
+                  className="p-2 bg-gray-800/70 hover:bg-gray-700/70 rounded-full"
+                  title="Create custom shade"
+                >
+                  <PlusCircle size={20} />
+                </motion.button>
+                
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setSelectedShade(null)}
+                  disabled={!selectedShade}
+                  className={`p-2 ${
+                    !selectedShade
+                      ? 'bg-gray-800/50 text-gray-500 cursor-not-allowed'
+                      : 'bg-gray-800/70 hover:bg-gray-700/70'
+                  } rounded-full`}
+                  title="Remove shade"
+                >
+                  <XCircle size={20} />
+                </motion.button>
+              </div>
+            </div>
+            
+            {/* Shades carousel */}
             <ShadeSwiper 
-              onSelectShade={handleShadeSelection}
               selectedShade={selectedShade}
+              onSelectShade={handleShadeSelection}
+              builtInShades={SHADE_DATA}
               customShades={customShades}
             />
+            
+            {/* Opacity control */}
+            <AnimatePresence>
+              {isOpacityControlOpen && (
+                <ShadeOpacityControl 
+                  opacity={opacity}
+                  setOpacity={setOpacity}
+                  onClose={() => setIsOpacityControlOpen(false)}
+                />
+              )}
+            </AnimatePresence>
+            
+            {/* Create shade panel */}
+            <AnimatePresence>
+              {isCreateShadeOpen && (
+                <CreateShadePanel
+                  builtInShades={SHADE_DATA}
+                  onCreateShade={createCustomShade}
+                  onClose={() => setIsCreateShadeOpen(false)}
+                />
+              )}
+            </AnimatePresence>
           </div>
-          
-          {/* Create Custom Shade Button */}
-          <div className="w-16 border-l border-neutral-200 flex flex-col items-center justify-center">
-            <button
-              onClick={() => setIsCreateShadeOpen(true)}
-              className="flex flex-col items-center justify-center w-full h-full p-2 hover:bg-neutral-50 transition"
-            >
-              <PlusCircle size={24} className="mb-1 text-neutral-700" />
-              <span className="text-[10px] text-center text-neutral-600 font-medium">Create Shade</span>
-            </button>
-          </div>
-        </div>
+        )}
       </div>
       
-      {/* Create Shade Panel */}
+      {/* Capture modal */}
       <AnimatePresence>
-        {isCreateShadeOpen && (
-          <CreateShadePanel
-            onClose={() => setIsCreateShadeOpen(false)}
-            onCreateShade={createCustomShade}
-            existingShades={SHADE_DATA}
-          />
+        {showCaptureModal && capturedImage && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+            onClick={closeModal}
+          >
+            <motion.div 
+              initial={{ scale: 0.9 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.9 }}
+              className="bg-gray-900 rounded-2xl overflow-hidden max-w-lg w-full"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="p-4 border-b border-gray-800 flex justify-between items-center">
+                <h3 className="text-lg font-medium">Captured Image</h3>
+                <button onClick={closeModal} className="text-gray-400 hover:text-white">
+                  <X size={20} />
+                </button>
+              </div>
+              
+              <div className="p-4">
+                <img 
+                  src={capturedImage} 
+                  alt="Captured shade try-on" 
+                  className="w-full h-auto rounded-lg"
+                />
+              </div>
+              
+              <div className="p-4 border-t border-gray-800 flex justify-end">
+                <button
+                  onClick={downloadImage}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg transition-colors"
+                >
+                  <Download size={18} />
+                  Download
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

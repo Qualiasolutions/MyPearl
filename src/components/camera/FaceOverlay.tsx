@@ -2,14 +2,29 @@
 
 import React, { useRef, useEffect } from 'react';
 import { useFaceDetectionStore } from '@/store/FaceDetectionStore';
+import { Shade } from '@/types/shades';
+
+interface DetectedFace {
+  box: {
+    xMin: number;
+    yMin: number;
+    width: number;
+    height: number;
+    xMax?: number;
+    yMax?: number;
+  };
+  landmarks?: Array<{ x: number; y: number; z: number }>;
+  boundingBox?: {
+    topLeft: number[];
+    bottomRight: number[];
+  };
+}
 
 interface Props {
-  landmarks?: Array<{ x: number; y: number; z: number }>;
-  imageWidth: number;
-  imageHeight: number;
-  mode: 'image' | 'video' | 'livestream';
-  shade?: string;
-  opacity?: number;
+  detectedFace: DetectedFace;
+  selectedShade: Shade;
+  isMirrored: boolean;
+  opacity: number;
 }
 
 // Constants for face outline parts
@@ -26,87 +41,81 @@ const NASOLABIAL_LEFT = [36, 205, 50, 116, 123, 147, 213, 177, 83];
 const NASOLABIAL_RIGHT = [266, 425, 280, 345, 352, 376, 433, 397, 313];
 const CHIN = [18, 200, 199, 175, 152, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109];
 
-export default function FaceOverlay({ landmarks, imageWidth, imageHeight, mode, shade = '#f5e6e0', opacity = 0.65 }: Props) {
+export default function FaceOverlay({ detectedFace, selectedShade, isMirrored, opacity = 0.65 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { isFaceDetected } = useFaceDetectionStore();
   
   // Parse the shade color to get RGBA values
-  const getRGBAComponents = (shadeColor: string): [number, number, number, number] => {
+  const getRGBAComponents = (color: string): [number, number, number, number] => {
     // Handle hex format
-    if (shadeColor.startsWith('#')) {
-      const r = parseInt(shadeColor.slice(1, 3), 16);
-      const g = parseInt(shadeColor.slice(3, 5), 16);
-      const b = parseInt(shadeColor.slice(5, 7), 16);
+    if (color.startsWith('#')) {
+      const r = parseInt(color.slice(1, 3), 16);
+      const g = parseInt(color.slice(3, 5), 16);
+      const b = parseInt(color.slice(5, 7), 16);
       return [r, g, b, opacity];
     }
-    // Handle rgba format
-    else if (shadeColor.startsWith('rgba')) {
-      const parts = shadeColor.match(/rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)/);
+    // Handle rgb/rgba format
+    else if (color.startsWith('rgb')) {
+      const parts = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)/);
       if (parts) {
         return [
           parseInt(parts[1]),
           parseInt(parts[2]),
           parseInt(parts[3]),
-          opacity // Use the passed opacity instead of the one in the color string
-        ];
-      }
-    }
-    // Handle rgb format
-    else if (shadeColor.startsWith('rgb')) {
-      const parts = shadeColor.match(/rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/);
-      if (parts) {
-        return [
-          parseInt(parts[1]),
-          parseInt(parts[2]),
-          parseInt(parts[3]),
-          opacity
+          opacity // Use the passed opacity
         ];
       }
     }
     // Default fallback
-    return [245, 230, 224, opacity];
+    return [245, 230, 224, opacity]; // Default light peach color
   };
   
+  // Extract color from shader
+  const getShadeColor = (): string => {
+    // The Shade type uses colorHex, not color
+    return selectedShade.colorHex;
+  };
+  
+  // Handle canvas drawing
   useEffect(() => {
-    if (!canvasRef.current || !landmarks || landmarks.length === 0) return;
-
     const canvas = canvasRef.current;
+    if (!canvas || !detectedFace || !detectedFace.landmarks) return;
+    
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-
-    // Set canvas dimensions to match the image
-    canvas.width = imageWidth;
-    canvas.height = imageHeight;
-
-    // Clear previous drawings
+    
+    // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Calculate scale factor based on mode
-    const scaleFactor = mode === 'livestream' 
-      ? Math.max(canvas.width / imageWidth, canvas.height / imageHeight)
-      : 1;
-
-    // Calculate offsets to center the drawing
-    const offsetX = (canvas.width - imageWidth * scaleFactor) / 2;
-    const offsetY = (canvas.height - imageHeight * scaleFactor) / 2;
-
-    // Get RGBA components for the shade
-    const [r, g, b, a] = getRGBAComponents(shade);
-
-    // Apply concealer with improved blending
-    renderConcealerMask(ctx, landmarks, imageWidth, imageHeight, scaleFactor, offsetX, offsetY, r, g, b, a);
     
-    // Apply targeted concealer for specific areas with enhanced shader effect
-    applyTargetedConcealer(ctx, landmarks, UNDER_EYE_LEFT, imageWidth, imageHeight, scaleFactor, offsetX, offsetY, r, g, b, a * 1.2);
-    applyTargetedConcealer(ctx, landmarks, UNDER_EYE_RIGHT, imageWidth, imageHeight, scaleFactor, offsetX, offsetY, r, g, b, a * 1.2);
-    applyTargetedConcealer(ctx, landmarks, NASOLABIAL_LEFT, imageWidth, imageHeight, scaleFactor, offsetX, offsetY, r, g, b, a * 0.9);
-    applyTargetedConcealer(ctx, landmarks, NASOLABIAL_RIGHT, imageWidth, imageHeight, scaleFactor, offsetX, offsetY, r, g, b, a * 0.9);
-    applyTargetedConcealer(ctx, landmarks, FOREHEAD, imageWidth, imageHeight, scaleFactor, offsetX, offsetY, r, g, b, a * 0.7);
-    applyTargetedConcealer(ctx, landmarks, CHIN, imageWidth, imageHeight, scaleFactor, offsetX, offsetY, r, g, b, a * 0.8);
+    // Get dimensions from box
+    const { box } = detectedFace;
+    const landmarks = detectedFace.landmarks;
     
-  }, [landmarks, imageWidth, imageHeight, mode, shade, opacity]);
-
-  // Function to render the base concealer mask
+    // Calculate scaling and offsets
+    const videoWidth = canvas.width;
+    const videoHeight = canvas.height;
+    
+    // Set dimensions
+    canvas.width = videoWidth;
+    canvas.height = videoHeight;
+    
+    // Get RGBA components
+    const [r, g, b, a] = getRGBAComponents(getShadeColor());
+    
+    // Apply the mask
+    renderConcealerMask(ctx, landmarks, videoWidth, videoHeight, 1, 0, 0, r, g, b, a);
+    
+    // Cut out eyes and lips
+    cutoutFacialFeature(ctx, landmarks, LEFT_EYE_LANDMARKS, videoWidth, videoHeight, 1, 0, 0);
+    cutoutFacialFeature(ctx, landmarks, RIGHT_EYE_LANDMARKS, videoWidth, videoHeight, 1, 0, 0);
+    cutoutFacialFeature(ctx, landmarks, LIPS_LANDMARKS, videoWidth, videoHeight, 1, 0, 0);
+    
+    // Apply additional effects for a more natural look
+    applyTextureEffect(ctx, videoWidth, videoHeight, 0.03);
+    
+  }, [detectedFace, selectedShade, opacity]);
+  
+  // Render concealer mask
   const renderConcealerMask = (
     ctx: CanvasRenderingContext2D,
     landmarks: Array<{ x: number; y: number; z: number }>,
@@ -120,72 +129,45 @@ export default function FaceOverlay({ landmarks, imageWidth, imageHeight, mode, 
     b: number,
     a: number
   ) => {
-    try {
-      // Create base face mask
-      ctx.save();
+    // Save context state
+    ctx.save();
+    
+    // Create a clipping path for the face area
+    ctx.beginPath();
+    
+    // Draw face outline path
+    FACE_OUTLINE_LANDMARKS.forEach((index, i) => {
+      const point = landmarks[index];
+      if (!point) return;
       
-      // Create clip path for the face outline
-      ctx.beginPath();
+      const x = point.x * scaleFactor + offsetX;
+      const y = point.y * scaleFactor + offsetY;
       
-      // Map the first point of face outline
-      const firstPoint = landmarks[FACE_OUTLINE_LANDMARKS[0]];
-      ctx.moveTo(
-        firstPoint.x * imageWidth * scaleFactor + offsetX,
-        firstPoint.y * imageHeight * scaleFactor + offsetY
-      );
-      
-      // Connect the rest of the face outline points
-      for (let i = 1; i < FACE_OUTLINE_LANDMARKS.length; i++) {
-        const landmark = landmarks[FACE_OUTLINE_LANDMARKS[i]];
-        ctx.lineTo(
-          landmark.x * imageWidth * scaleFactor + offsetX,
-          landmark.y * imageHeight * scaleFactor + offsetY
-        );
+      if (i === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
       }
-      
-      // Close the path
-      ctx.closePath();
-      ctx.clip();
-      
-      // Fill with a gradient for more realistic blending
-      const faceCenterX = imageWidth * scaleFactor / 2 + offsetX;
-      const faceCenterY = imageHeight * scaleFactor / 2 + offsetY;
-      const faceRadius = imageWidth * scaleFactor * 0.4;
-      
-      // Create a radial gradient for natural falloff
-      const gradient = ctx.createRadialGradient(
-        faceCenterX, faceCenterY, 0,
-        faceCenterX, faceCenterY, faceRadius
-      );
-      
-      // Set gradient colors with improved blending
-      gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${a * 0.8})`);
-      gradient.addColorStop(0.6, `rgba(${r}, ${g}, ${b}, ${a * 0.5})`);
-      gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, ${a * 0.2})`);
-      
-      ctx.fillStyle = gradient;
-      if (canvasRef.current) {
-        ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-      }
-      
-      // Cut out eyes, mouth
-      cutoutFacialFeature(ctx, landmarks, LEFT_EYE_LANDMARKS, imageWidth, imageHeight, scaleFactor, offsetX, offsetY);
-      cutoutFacialFeature(ctx, landmarks, RIGHT_EYE_LANDMARKS, imageWidth, imageHeight, scaleFactor, offsetX, offsetY);
-      cutoutFacialFeature(ctx, landmarks, LIPS_LANDMARKS, imageWidth, imageHeight, scaleFactor, offsetX, offsetY);
-      
-      // Apply composite operation for better blending
-      ctx.globalCompositeOperation = 'source-atop';
-      
-      // Apply a subtle texture for skin-like appearance
-      applyTextureEffect(ctx, imageWidth, imageHeight, a * 0.2);
-      
-      ctx.restore();
-    } catch (error) {
-      console.error('Error rendering concealer mask:', error);
-    }
+    });
+    
+    ctx.closePath();
+    ctx.clip();
+    
+    // Fill with concealer color
+    ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+    ctx.fillRect(0, 0, imageWidth, imageHeight);
+    
+    // Apply targeted concealer to specific areas
+    applyTargetedConcealer(ctx, landmarks, UNDER_EYE_LEFT, imageWidth, imageHeight, scaleFactor, offsetX, offsetY, r, g, b, a + 0.1);
+    applyTargetedConcealer(ctx, landmarks, UNDER_EYE_RIGHT, imageWidth, imageHeight, scaleFactor, offsetX, offsetY, r, g, b, a + 0.1);
+    applyTargetedConcealer(ctx, landmarks, NASOLABIAL_LEFT, imageWidth, imageHeight, scaleFactor, offsetX, offsetY, r, g, b, a + 0.05);
+    applyTargetedConcealer(ctx, landmarks, NASOLABIAL_RIGHT, imageWidth, imageHeight, scaleFactor, offsetX, offsetY, r, g, b, a + 0.05);
+    
+    // Restore context
+    ctx.restore();
   };
-
-  // Function to cut out facial features
+  
+  // Helper function to cut out facial features
   const cutoutFacialFeature = (
     ctx: CanvasRenderingContext2D,
     landmarks: Array<{ x: number; y: number; z: number }>,
@@ -196,40 +178,34 @@ export default function FaceOverlay({ landmarks, imageWidth, imageHeight, mode, 
     offsetX: number,
     offsetY: number
   ) => {
-    if (featureLandmarks.length === 0) return;
-
-    // Ensure we have the first landmark
-    const firstLandmark = landmarks[featureLandmarks[0]];
-    if (!firstLandmark) return;
-
     ctx.save();
+    
+    // Set composite operation to destination-out to cut out the feature
     ctx.globalCompositeOperation = 'destination-out';
+    
+    // Draw feature path
     ctx.beginPath();
-    
-    // Move to the first point
-    ctx.moveTo(
-      firstLandmark.x * imageWidth * scaleFactor + offsetX,
-      firstLandmark.y * imageHeight * scaleFactor + offsetY
-    );
-    
-    // Connect the rest of the feature outline points
-    for (let i = 1; i < featureLandmarks.length; i++) {
-      const landmark = landmarks[featureLandmarks[i]];
-      if (!landmark) continue;
+    featureLandmarks.forEach((index, i) => {
+      const point = landmarks[index];
+      if (!point) return;
       
-      ctx.lineTo(
-        landmark.x * imageWidth * scaleFactor + offsetX,
-        landmark.y * imageHeight * scaleFactor + offsetY
-      );
-    }
+      const x = point.x * scaleFactor + offsetX;
+      const y = point.y * scaleFactor + offsetY;
+      
+      if (i === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+    });
     
-    // Close the path
     ctx.closePath();
     ctx.fill();
+    
     ctx.restore();
   };
-
-  // Function to apply targeted concealer to specific areas
+  
+  // Apply targeted concealer to specific face areas
   const applyTargetedConcealer = (
     ctx: CanvasRenderingContext2D,
     landmarks: Array<{ x: number; y: number; z: number }>,
@@ -244,134 +220,64 @@ export default function FaceOverlay({ landmarks, imageWidth, imageHeight, mode, 
     b: number,
     a: number
   ) => {
-    if (targetLandmarks.length === 0) return;
-
-    // Ensure we have the first landmark
-    const firstLandmark = landmarks[targetLandmarks[0]];
-    if (!firstLandmark) return;
-
     ctx.save();
     
-    // Create path for the target area
+    // Draw targeted area
     ctx.beginPath();
-    
-    // Move to the first point
-    ctx.moveTo(
-      firstLandmark.x * imageWidth * scaleFactor + offsetX,
-      firstLandmark.y * imageHeight * scaleFactor + offsetY
-    );
-    
-    // Connect the rest of the target area points
-    for (let i = 1; i < targetLandmarks.length; i++) {
-      const landmark = landmarks[targetLandmarks[i]];
-      if (!landmark) continue;
+    targetLandmarks.forEach((index, i) => {
+      const point = landmarks[index];
+      if (!point) return;
       
-      ctx.lineTo(
-        landmark.x * imageWidth * scaleFactor + offsetX,
-        landmark.y * imageHeight * scaleFactor + offsetY
-      );
-    }
+      const x = point.x * scaleFactor + offsetX;
+      const y = point.y * scaleFactor + offsetY;
+      
+      if (i === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+    });
     
-    // Close the path
     ctx.closePath();
     
-    // Fill with the concealer color, slightly increased opacity for these targeted areas
+    // Fill with slightly increased opacity
     ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-    
-    // Use composition mode for realistic blending
-    ctx.globalCompositeOperation = 'multiply';
     ctx.fill();
     
-    // Apply a soft blur effect for targeted areas
-    applyBlurEffect(ctx, targetLandmarks, landmarks, imageWidth, imageHeight, scaleFactor, offsetX, offsetY);
-    
     ctx.restore();
   };
-
-  // Function to apply a blur effect for smoother edges
-  const applyBlurEffect = (
-    ctx: CanvasRenderingContext2D,
-    targetLandmarks: number[],
-    landmarks: Array<{ x: number; y: number; z: number }>,
-    imageWidth: number,
-    imageHeight: number,
-    scaleFactor: number,
-    offsetX: number,
-    offsetY: number
-  ) => {
-    // Calculate the center point of the target area
-    let centerX = 0;
-    let centerY = 0;
-    let count = 0;
-    
-    for (const landmarkIndex of targetLandmarks) {
-      const landmark = landmarks[landmarkIndex];
-      if (!landmark) continue;
-      
-      centerX += landmark.x * imageWidth * scaleFactor + offsetX;
-      centerY += landmark.y * imageHeight * scaleFactor + offsetY;
-      count++;
-    }
-    
-    if (count === 0) return;
-    
-    centerX /= count;
-    centerY /= count;
-    
-    // Apply radial gradient blur
-    ctx.save();
-    ctx.globalCompositeOperation = 'source-over';
-    
-    const gradient = ctx.createRadialGradient(
-      centerX, centerY, 0,
-      centerX, centerY, 50 * scaleFactor
-    );
-    
-    gradient.addColorStop(0, 'rgba(255, 255, 255, 0.2)');
-    gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
-    
-    ctx.fillStyle = gradient;
-    if (canvasRef.current) {
-      ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-    }
-    
-    ctx.restore();
-  };
-
-  // Function to apply a subtle texture effect
+  
+  // Add texture effect for more natural look
   const applyTextureEffect = (
     ctx: CanvasRenderingContext2D,
     imageWidth: number,
     imageHeight: number,
     intensity: number
   ) => {
-    // Create a noise pattern for skin texture
+    // Add a subtle noise texture for more realistic appearance
     const imageData = ctx.getImageData(0, 0, imageWidth, imageHeight);
     const data = imageData.data;
     
     for (let i = 0; i < data.length; i += 4) {
-      // Skip transparent pixels
+      // Skip fully transparent pixels
       if (data[i + 3] === 0) continue;
       
-      // Add subtle random noise
-      const noise = (Math.random() - 0.5) * intensity * 10;
-      
-      data[i] = Math.min(255, Math.max(0, data[i] + noise));
-      data[i + 1] = Math.min(255, Math.max(0, data[i + 1] + noise));
-      data[i + 2] = Math.min(255, Math.max(0, data[i + 2] + noise));
+      // Add subtle random variation to each color channel
+      const noise = Math.random() * intensity * 255;
+      data[i] = Math.min(255, Math.max(0, data[i] + noise - (intensity * 255) / 2));
+      data[i + 1] = Math.min(255, Math.max(0, data[i + 1] + noise - (intensity * 255) / 2));
+      data[i + 2] = Math.min(255, Math.max(0, data[i + 2] + noise - (intensity * 255) / 2));
     }
     
     ctx.putImageData(imageData, 0, 0);
   };
-
+  
   return (
     <canvas
       ref={canvasRef}
-      className="absolute inset-0 pointer-events-none z-10"
+      className="absolute top-0 left-0 w-full h-full z-30 pointer-events-none"
       style={{
-        width: '100%',
-        height: '100%',
-        objectFit: 'cover'
+        transform: isMirrored ? 'scaleX(-1)' : 'none'
       }}
     />
   );
