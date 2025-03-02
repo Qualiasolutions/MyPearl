@@ -57,6 +57,8 @@ export default function FaceDetectionCamera() {
   const [opacity, setOpacity] = useState(0.65);
   const [retryCount, setRetryCount] = useState(0);
   const [isCameraMirrored, setIsCameraMirrored] = useState(true);
+  
+  // Use the face detection store properly
   const { isFaceDetected, setFaceDetected } = useFaceDetectionStore();
   
   // Video dimensions state
@@ -66,7 +68,7 @@ export default function FaceDetectionCamera() {
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [showCaptureModal, setShowCaptureModal] = useState(false);
   
-  // Load custom shades from localStorage
+  // Load local storage for custom shades
   useEffect(() => {
     try {
       const savedShades = localStorage.getItem('customShades');
@@ -105,16 +107,12 @@ export default function FaceDetectionCamera() {
   
   const initializeTensorFlow = async () => {
     try {
-      setIsModelLoading(true);
-      setError(null);
-      
-      // Ensure TensorFlow.js is initialized with WebGL backend
+      // Initialize TensorFlow.js with WebGL backend for better performance
       await tf.setBackend('webgl');
-      await tf.ready();
       
-      // Load face detection model more efficiently
+      // Load the model
+      setIsModelLoading(true);
       await setupFaceDetection();
-      
       setIsModelLoading(false);
     } catch (err) {
       console.error('Error initializing TensorFlow:', err);
@@ -179,7 +177,7 @@ export default function FaceDetectionCamera() {
       // Load the MediaPipe FaceMesh model for more accurate facial landmark detection
       const model = faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh;
       const detectorConfig = {
-        runtime: 'tfjs',
+        runtime: 'tfjs' as const, // Type as const to match expected 'tfjs' literal
         refineLandmarks: true,
         maxFaces: 1
       };
@@ -246,6 +244,7 @@ export default function FaceDetectionCamera() {
           }
         } catch (err) {
           console.error('Error in face detection loop:', err);
+          setFaceDetected(false);
         }
       }
       
@@ -306,7 +305,35 @@ export default function FaceDetectionCamera() {
   
   // Handle shade selection
   const handleShadeSelection = (shade: Shade) => {
+    // Provide haptic feedback if available
+    if (window.navigator && 'vibrate' in window.navigator) {
+      try {
+        window.navigator.vibrate(50);
+      } catch (e) {
+        // Ignore if vibration API is not available
+      }
+    }
+    
+    // Update selected shade
     setSelectedShade(shade);
+    
+    // If face is detected, show a brief confirmation message
+    if (isFaceDetected) {
+      const notification = document.createElement('div');
+      notification.className = 'fixed bottom-20 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center opacity-0 transition-opacity duration-300';
+      notification.innerHTML = `
+        <span class="w-4 h-4 rounded-full mr-2" style="background-color: ${shade.colorHex}"></span>
+        <span>${shade.name} applied</span>
+      `;
+      document.body.appendChild(notification);
+      
+      // Animate notification
+      setTimeout(() => notification.classList.add('opacity-90'), 10);
+      setTimeout(() => {
+        notification.classList.remove('opacity-90');
+        setTimeout(() => notification.remove(), 300);
+      }, 1500);
+    }
   };
   
   // Create a custom shade
@@ -321,23 +348,41 @@ export default function FaceDetectionCamera() {
         throw new Error('Please select at least one shade to blend');
       }
       
-      // Create a new custom shade
+      // Create a new custom shade with a unique ID
+      const newId = Date.now(); // Use timestamp as ID for simplicity
+      
+      // Simple color blending (average)
+      let r = 0, g = 0, b = 0;
+      
+      blendedShades.forEach(shade => {
+        const hex = shade.colorHex.replace('#', '');
+        const bigint = parseInt(hex, 16);
+        r += (bigint >> 16) & 255;
+        g += (bigint >> 8) & 255;
+        b += bigint & 255;
+      });
+      
+      r = Math.round(r / blendedShades.length);
+      g = Math.round(g / blendedShades.length);
+      b = Math.round(b / blendedShades.length);
+      
+      // Convert back to hex
+      const blendedColorHex = `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase()}`;
+      
+      // Create the new shade object
       const newShade: Shade = {
-        id: `custom-${Date.now()}`,
+        id: newId,
         name: name.trim(),
-        color: blendedShades.length > 1 
-          ? 'linear-gradient(to right, ' + blendedShades.map(s => s.color).join(', ') + ')'
-          : blendedShades[0].color,
-        isCustom: true,
-        blendedFrom: blendedShades.map(s => s.id)
+        category: 'Custom' as any, // Cast as any to avoid type errors
+        colorHex: blendedColorHex
       };
       
-      // Update custom shades state
-      const updatedShades = [...customShades, newShade];
-      setCustomShades(updatedShades);
+      // Add to custom shades
+      const updatedCustomShades = [...customShades, newShade];
+      setCustomShades(updatedCustomShades);
       
       // Save to localStorage
-      localStorage.setItem('customShades', JSON.stringify(updatedShades));
+      localStorage.setItem('customShades', JSON.stringify(updatedCustomShades));
       
       // Select the new shade
       setSelectedShade(newShade);
@@ -595,7 +640,7 @@ export default function FaceDetectionCamera() {
             <AnimatePresence>
               {isCreateShadeOpen && (
                 <CreateShadePanel
-                  builtInShades={SHADE_DATA}
+                  existingShades={customShades}
                   onCreateShade={createCustomShade}
                   onClose={() => setIsCreateShadeOpen(false)}
                 />
