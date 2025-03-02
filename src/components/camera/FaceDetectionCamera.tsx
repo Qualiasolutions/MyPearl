@@ -67,6 +67,23 @@ export default function FaceDetectionCamera() {
   const [videoWidth, setVideoWidth] = useState(0);
   const [videoHeight, setVideoHeight] = useState(0);
   
+  // Detect if we're on mobile
+  const [isMobile, setIsMobile] = useState(false);
+  
+  // Check initial mobile state and set up listener
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    
+    // Check initially
+    checkMobile();
+    
+    // Listen for resize
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+  
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [showCaptureModal, setShowCaptureModal] = useState(false);
   
@@ -109,23 +126,17 @@ export default function FaceDetectionCamera() {
     
     let newWidth, newHeight;
     
-    // Check if we're on mobile
-    const isMobile = window.innerWidth < 768;
-    
+    // Force landscape orientation for camera display
+    // Make camera significantly larger for better visibility
     if (isMobile) {
-      if (deviceOrientation?.includes('landscape')) {
-        // Landscape mobile
-        newWidth = Math.min(window.innerWidth * 0.75, 640);
-        newHeight = newWidth / videoAspectRatio;
-      } else {
-        // Portrait mobile
-        newHeight = Math.min(window.innerHeight * 0.5, 480);
-        newWidth = newHeight * videoAspectRatio;
-      }
+      // On mobile, use a landscape orientation regardless of device orientation
+      // and make camera much bigger
+      newWidth = Math.min(window.innerWidth * 0.95, 640);
+      newHeight = newWidth / (4/3); // Force 4:3 aspect ratio for better face detection
     } else {
-      // Desktop
-      newWidth = Math.min(window.innerWidth * 0.7, 640);
-      newHeight = newWidth / videoAspectRatio;
+      // On desktop, make camera larger
+      newWidth = Math.min(window.innerWidth * 0.8, 800);
+      newHeight = newWidth / (4/3);
     }
     
     setVideoWidth(newWidth);
@@ -136,7 +147,7 @@ export default function FaceDetectionCamera() {
       canvasRef.current.width = newWidth;
       canvasRef.current.height = newHeight;
     }
-  }, [deviceOrientation]);
+  }, [isMobile]);
 
   // Detect device orientation
   useEffect(() => {
@@ -504,8 +515,12 @@ export default function FaceDetectionCamera() {
         error={error}
       />
       
-      {/* Main camera container */}
-      <div className="relative flex items-center justify-center w-full md:w-auto">
+      {/* Main camera container - adjust position upwards and sideways */}
+      <div className="relative flex items-center justify-center w-full md:w-auto" 
+           style={{ 
+             marginTop: "-5vh", 
+             marginLeft: isMobile ? "0" : "5vw" 
+           }}>
         {/* Camera */}
         <div 
           className="relative overflow-hidden rounded-2xl shadow-xl"
@@ -513,7 +528,8 @@ export default function FaceDetectionCamera() {
             width: videoWidth || 'auto', 
             height: videoHeight || 'auto',
             maxWidth: '100vw',
-            maxHeight: '70vh'
+            maxHeight: '80vh',
+            transform: "rotate(0deg)" // Force correct orientation
           }}
         >
           {isModelLoading ? (
@@ -536,13 +552,16 @@ export default function FaceDetectionCamera() {
                 videoConstraints={{
                   facingMode: cameraFacingMode,
                   aspectRatio: 4/3,
-                  width: { ideal: 1280 },
-                  height: { ideal: 720 }
+                  width: { ideal: 1920 },
+                  height: { ideal: 1080 }
                 }}
                 onUserMedia={() => setIsCameraInitialized(true)}
                 className="w-full h-full object-cover"
                 style={{
-                  transform: `${isCameraMirrored ? 'scaleX(-1)' : 'none'} ${deviceOrientation?.includes('landscape-secondary') ? 'rotate(180deg)' : ''}`,
+                  transform: `${isCameraMirrored ? 'scaleX(-1)' : 'none'} rotate(0deg)`,
+                  display: "block",
+                  width: "100%",
+                  height: "100%"
                 }}
               />
               
@@ -567,7 +586,7 @@ export default function FaceDetectionCamera() {
       </div>
       
       {/* Controls and UI */}
-      <div className="w-full max-w-md mt-4 px-2">
+      <div className="w-full max-w-md mt-2 px-2">
         {/* Error message */}
         {error && (
           <motion.div 
