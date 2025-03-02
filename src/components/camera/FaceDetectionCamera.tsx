@@ -57,6 +57,8 @@ export default function FaceDetectionCamera() {
   const [opacity, setOpacity] = useState(0.65);
   const [retryCount, setRetryCount] = useState(0);
   const [isCameraMirrored, setIsCameraMirrored] = useState(true);
+  const [deviceOrientation, setDeviceOrientation] = useState<string | null>(null);
+  const [cameraFacingMode, setCameraFacingMode] = useState<'user' | 'environment'>('user');
   
   // Use the face detection store properly
   const { isFaceDetected, setFaceDetected } = useFaceDetectionStore();
@@ -98,17 +100,120 @@ export default function FaceDetectionCamera() {
     };
   }, []);
   
+  // Calculate responsive dimensions based on window size and orientation
+  const calculateResponsiveDimensions = useCallback(() => {
+    if (!webcamRef.current || !webcamRef.current.video) return;
+    
+    const video = webcamRef.current.video;
+    const videoAspectRatio = video.videoWidth / video.videoHeight;
+    
+    let newWidth, newHeight;
+    
+    // Check if we're on mobile
+    const isMobile = window.innerWidth < 768;
+    
+    if (isMobile) {
+      if (deviceOrientation?.includes('landscape')) {
+        // Landscape mobile
+        newWidth = Math.min(window.innerWidth * 0.75, 640);
+        newHeight = newWidth / videoAspectRatio;
+      } else {
+        // Portrait mobile
+        newHeight = Math.min(window.innerHeight * 0.5, 480);
+        newWidth = newHeight * videoAspectRatio;
+      }
+    } else {
+      // Desktop
+      newWidth = Math.min(window.innerWidth * 0.7, 640);
+      newHeight = newWidth / videoAspectRatio;
+    }
+    
+    setVideoWidth(newWidth);
+    setVideoHeight(newHeight);
+    
+    // Update canvas dimensions to match
+    if (canvasRef.current) {
+      canvasRef.current.width = newWidth;
+      canvasRef.current.height = newHeight;
+    }
+  }, [deviceOrientation]);
+
+  // Detect device orientation
+  useEffect(() => {
+    const handleOrientationChange = () => {
+      const orientation = window.screen.orientation?.type || 
+                         (window.innerWidth > window.innerHeight ? 'landscape' : 'portrait');
+      setDeviceOrientation(orientation);
+      // Recalculate dimensions when orientation changes
+      if (isCameraInitialized) {
+        calculateResponsiveDimensions();
+      }
+    };
+    
+    // Set initial orientation
+    handleOrientationChange();
+    
+    // Listen for orientation changes
+    window.addEventListener('orientationchange', handleOrientationChange);
+    window.addEventListener('resize', handleOrientationChange);
+    
+    return () => {
+      window.removeEventListener('orientationchange', handleOrientationChange);
+      window.removeEventListener('resize', handleOrientationChange);
+    };
+  }, [calculateResponsiveDimensions, isCameraInitialized]);
+  
   // Calculate responsive dimensions when camera is initialized
   useEffect(() => {
     if (isCameraInitialized) {
       calculateResponsiveDimensions();
     }
-  }, [isCameraInitialized]);
+  }, [isCameraInitialized, calculateResponsiveDimensions]);
+
+  // Handle window resize and recalculate dimensions
+  const handleResize = useCallback(() => {
+    if (isCameraInitialized) {
+      calculateResponsiveDimensions();
+    }
+  }, [isCameraInitialized, calculateResponsiveDimensions]);
+  
+  // Toggle front/back camera
+  const toggleCamera = useCallback(() => {
+    setCameraFacingMode(prev => prev === 'user' ? 'environment' : 'user');
+    // Reset face detection when switching cameras
+    setFaceDetected(false);
+    setDetectedFace(null);
+    
+    // Small delay to let camera switch before running detection again
+    setTimeout(() => {
+      if (model) {
+        startFaceDetection(model);
+      }
+    }, 1000);
+  }, [model, setFaceDetected]);
+  
+  // Reinitialize face detection when retry count changes
+  useEffect(() => {
+    if (retryCount > 0) {
+      // Stop current detection loop if running
+      if (requestAnimationRef.current) {
+        cancelAnimationFrame(requestAnimationRef.current);
+      }
+      // Reinitialize with a short delay
+      setTimeout(() => {
+        initializeTensorFlow();
+      }, 500);
+    }
+  }, [retryCount]);
   
   const initializeTensorFlow = async () => {
     try {
       // Initialize TensorFlow.js with WebGL backend for better performance
       await tf.setBackend('webgl');
+      
+      // Set appropriate flags to optimize performance
+      tf.env().set('WEBGL_FORCE_F16_TEXTURES', true);
+      tf.env().set('WEBGL_PACK', true);
       
       // Load the model
       setIsModelLoading(true);
@@ -121,63 +226,12 @@ export default function FaceDetectionCamera() {
     }
   };
   
-  // Handle window resize and recalculate dimensions
-  const handleResize = useCallback(() => {
-    if (isCameraInitialized) {
-      calculateResponsiveDimensions();
-    }
-  }, [isCameraInitialized]);
-  
-  // Calculate responsive dimensions based on window size
-  const calculateResponsiveDimensions = useCallback(() => {
-    if (!webcamRef.current || !webcamRef.current.video) return;
-    
-    const video = webcamRef.current.video;
-    const videoAspectRatio = video.videoWidth / video.videoHeight;
-    
-    let newWidth, newHeight;
-    
-    // Check if we're on mobile (portrait orientation)
-    const isMobile = window.innerWidth < 768;
-    
-    if (isMobile) {
-      // Use nearly full width on mobile, maintain aspect ratio
-      newWidth = Math.min(window.innerWidth * 0.95, 480);
-      newHeight = newWidth / videoAspectRatio;
-      
-      // Make sure height isn't too tall for the viewport
-      if (newHeight > window.innerHeight * 0.6) {
-        newHeight = window.innerHeight * 0.6;
-        newWidth = newHeight * videoAspectRatio;
-      }
-    } else {
-      // On desktop, use reasonable dimensions
-      newWidth = Math.min(window.innerWidth * 0.7, 640);
-      newHeight = newWidth / videoAspectRatio;
-      
-      // Make sure height isn't too tall for the viewport
-      if (newHeight > window.innerHeight * 0.7) {
-        newHeight = window.innerHeight * 0.7;
-        newWidth = newHeight * videoAspectRatio;
-      }
-    }
-    
-    setVideoWidth(newWidth);
-    setVideoHeight(newHeight);
-    
-    // Update canvas dimensions to match
-    if (canvasRef.current) {
-      canvasRef.current.width = newWidth;
-      canvasRef.current.height = newHeight;
-    }
-  }, []);
-  
   const setupFaceDetection = async () => {
     try {
       // Load the MediaPipe FaceMesh model for more accurate facial landmark detection
       const model = faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh;
       const detectorConfig = {
-        runtime: 'tfjs' as const, // Type as const to match expected 'tfjs' literal
+        runtime: 'tfjs' as const,
         refineLandmarks: true,
         maxFaces: 1
       };
@@ -213,8 +267,11 @@ export default function FaceDetectionCamera() {
         try {
           const video = webcamRef.current.video;
           
-          // Perform face detection
-          const faces = await detector.estimateFaces(video);
+          // Perform face detection with additional options for better accuracy
+          const faces = await detector.estimateFaces(video, {
+            flipHorizontal: isCameraMirrored,
+            staticImageMode: false
+          });
           
           if (faces && faces.length > 0) {
             // Extract face data
@@ -254,7 +311,7 @@ export default function FaceDetectionCamera() {
     
     // Start the detection loop
     detectFace();
-  }, [setFaceDetected]);
+  }, [isCameraMirrored, setFaceDetected]);
   
   // Analyze face position and provide feedback
   const checkFacePosition = (face: DetectedFace) => {
@@ -477,12 +534,15 @@ export default function FaceDetectionCamera() {
                 mirrored={isCameraMirrored}
                 screenshotFormat="image/png"
                 videoConstraints={{
-                  facingMode: "user",
+                  facingMode: cameraFacingMode,
+                  aspectRatio: 4/3,
+                  width: { ideal: 1280 },
+                  height: { ideal: 720 }
                 }}
                 onUserMedia={() => setIsCameraInitialized(true)}
                 className="w-full h-full object-cover"
                 style={{
-                  transform: isCameraMirrored ? 'scaleX(-1)' : 'none',
+                  transform: `${isCameraMirrored ? 'scaleX(-1)' : 'none'} ${deviceOrientation?.includes('landscape-secondary') ? 'rotate(180deg)' : ''}`,
                 }}
               />
               
@@ -553,7 +613,7 @@ export default function FaceDetectionCamera() {
         )}
         
         {/* Controls and shade selection */}
-        {!isModelLoading && isFaceDetected && (
+        {!isModelLoading && (
           <div className="mt-4">
             {/* Buttons */}
             <div className="flex justify-between items-center mb-3">
@@ -565,6 +625,15 @@ export default function FaceDetectionCamera() {
                   title="Toggle camera mirroring"
                 >
                   <Repeat size={20} />
+                </motion.button>
+                
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={toggleCamera}
+                  className="p-2 bg-gray-800/70 hover:bg-gray-700/70 rounded-full"
+                  title="Switch camera"
+                >
+                  <RefreshCw size={20} />
                 </motion.button>
                 
                 <motion.button
