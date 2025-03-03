@@ -99,11 +99,11 @@ export default function FaceDetectionCamera() {
     };
   };
 
-  // Video constraints for portrait mode with front camera
+  // Video constraints for portrait mode with front camera only
   const videoConstraints = {
     width: isMobile ? { ideal: 1080 } : { ideal: 1280 },
     height: isMobile ? { ideal: 1920 } : { ideal: 720 },
-    facingMode: 'user', // Always use front camera
+    facingMode: { exact: 'user' }, // Always use front camera with exact constraint
     aspectRatio: isMobile ? 9/16 : 16/9, // Portrait mode
   };
   
@@ -303,7 +303,8 @@ export default function FaceDetectionCamera() {
   const createCustomShade = (name: string, blendedShades: Shade[]) => {
     if (blendedShades.length === 0) return;
     
-    // Calculate blended color
+    // Calculate weighted RGB values based on equal weights
+    // Future improvement: extract weights from ShadeWithWeight if passed
     const rgbValues = blendedShades.map(shade => {
       const hex = shade.colorHex.replace('#', '');
       return {
@@ -313,6 +314,7 @@ export default function FaceDetectionCamera() {
       };
     });
     
+    // Calculate average RGB values
     const avgR = Math.round(rgbValues.reduce((sum, rgb) => sum + rgb.r, 0) / rgbValues.length);
     const avgG = Math.round(rgbValues.reduce((sum, rgb) => sum + rgb.g, 0) / rgbValues.length);
     const avgB = Math.round(rgbValues.reduce((sum, rgb) => sum + rgb.b, 0) / rgbValues.length);
@@ -370,7 +372,10 @@ export default function FaceDetectionCamera() {
   };
 
   const toggleCameraMirroring = () => {
-    setIsCameraMirrored(!isCameraMirrored);
+    // Front camera is always mirrored, so this function is now a no-op
+    console.log('Camera is locked to front-facing mode');
+    // Keep the state as true for front camera
+    setIsCameraMirrored(true);
   };
 
   const captureImage = () => {
@@ -446,9 +451,9 @@ export default function FaceDetectionCamera() {
         {/* Camera controls */}
         <div className="flex justify-between items-center mt-4 px-2">
           <button
-            onClick={toggleCreateShade}
+            onClick={toggleOpacityControl}
             className="rounded-full p-3 bg-white/10 text-white"
-            aria-label="Create custom shade"
+            aria-label="Adjust opacity"
           >
             <Palette size={24} />
           </button>
@@ -463,11 +468,11 @@ export default function FaceDetectionCamera() {
           </button>
           
           <button
-            onClick={toggleCameraMirroring}
+            onClick={toggleCreateShade}
             className="rounded-full p-3 bg-white/10 text-white"
-            aria-label="Toggle camera mode"
+            aria-label="Create custom shade"
           >
-            <RefreshCw size={24} />
+            <Palette size={24} />
           </button>
         </div>
       </div>

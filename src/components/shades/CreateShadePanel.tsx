@@ -2,8 +2,13 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { X, Check, Trash2, ArrowLeft } from 'lucide-react';
+import { X, Check, Trash2, ArrowLeft, Plus, Minus } from 'lucide-react';
 import { Shade, ShadeCategory } from '@/types/shades';
+
+interface ShadeWithWeight {
+  shade: Shade;
+  weight: number;
+}
 
 interface Props {
   onClose: () => void;
@@ -12,57 +17,82 @@ interface Props {
 }
 
 export default function CreateShadePanel({ onClose, onCreateShade, existingShades }: Props) {
-  const [selectedShades, setSelectedShades] = useState<Shade[]>([]);
+  const [selectedShades, setSelectedShades] = useState<ShadeWithWeight[]>([]);
   const [shadeName, setShadeName] = useState('Custom Shade');
   const [previewColor, setPreviewColor] = useState('#f5e6e0');
   const [activeCategory, setActiveCategory] = useState<ShadeCategory>('Fair');
-  const maxSelection = 5;
+  const maxSelection = 4; // Changed to max 4 shades
   const categories: ShadeCategory[] = ['Fair', 'Light', 'Medium', 'Medium Deep', 'Deep'];
 
-  // Calculate RGB values for selected shades
-  const rgbValues = useMemo(() => {
-    return selectedShades.map(shade => {
-      const hex = shade.colorHex.replace('#', '');
-      return {
-        r: parseInt(hex.substring(0, 2), 16),
-        g: parseInt(hex.substring(2, 4), 16),
-        b: parseInt(hex.substring(4, 6), 16)
-      };
+  // Calculate RGB values for selected shades taking weight into account
+  const calculateBlendedColor = () => {
+    if (selectedShades.length === 0) {
+      return '#f5e6e0';
+    }
+    
+    // Calculate weighted average of colors
+    const totalWeight = selectedShades.reduce((sum, item) => sum + item.weight, 0);
+    
+    // Calculate weighted RGB values
+    let totalR = 0;
+    let totalG = 0;
+    let totalB = 0;
+    
+    selectedShades.forEach(item => {
+      const hex = item.shade.colorHex.replace('#', '');
+      const r = parseInt(hex.substring(0, 2), 16);
+      const g = parseInt(hex.substring(2, 4), 16);
+      const b = parseInt(hex.substring(4, 6), 16);
+      
+      const normalizedWeight = item.weight / totalWeight;
+      
+      totalR += r * normalizedWeight;
+      totalG += g * normalizedWeight;
+      totalB += b * normalizedWeight;
     });
-  }, [selectedShades]);
+    
+    const avgR = Math.round(totalR);
+    const avgG = Math.round(totalG);
+    const avgB = Math.round(totalB);
+    
+    return `#${avgR.toString(16).padStart(2, '0')}${avgG.toString(16).padStart(2, '0')}${avgB.toString(16).padStart(2, '0')}`;
+  };
 
   // Update preview color when selected shades change
   useEffect(() => {
-    if (selectedShades.length === 0) {
-      setPreviewColor('#f5e6e0');
-      return;
-    }
-
-    // Calculate average color
-    const avgR = Math.round(rgbValues.reduce((sum, rgb) => sum + rgb.r, 0) / rgbValues.length);
-    const avgG = Math.round(rgbValues.reduce((sum, rgb) => sum + rgb.g, 0) / rgbValues.length);
-    const avgB = Math.round(rgbValues.reduce((sum, rgb) => sum + rgb.b, 0) / rgbValues.length);
-
-    setPreviewColor(`#${avgR.toString(16).padStart(2, '0')}${avgG.toString(16).padStart(2, '0')}${avgB.toString(16).padStart(2, '0')}`);
-  }, [rgbValues, selectedShades]);
+    setPreviewColor(calculateBlendedColor());
+  }, [selectedShades]);
 
   const toggleShadeSelection = (shade: Shade) => {
-    if (selectedShades.some(s => s.id === shade.id)) {
-      setSelectedShades(selectedShades.filter(s => s.id !== shade.id));
+    if (selectedShades.some(s => s.shade.id === shade.id)) {
+      setSelectedShades(selectedShades.filter(s => s.shade.id !== shade.id));
     } else {
       if (selectedShades.length < maxSelection) {
-        setSelectedShades([...selectedShades, shade]);
+        setSelectedShades([...selectedShades, { shade, weight: 1 }]);
       }
     }
   };
 
   const removeSelectedShade = (shade: Shade) => {
-    setSelectedShades(selectedShades.filter(s => s.id !== shade.id));
+    setSelectedShades(selectedShades.filter(s => s.shade.id !== shade.id));
+  };
+
+  const adjustShadeWeight = (shadeId: number, increment: number) => {
+    setSelectedShades(selectedShades.map(item => {
+      if (item.shade.id === shadeId) {
+        // Allow adjustments in 0.1 (10%) increments between 0.1 and 2.0
+        const newWeight = Math.max(0.1, Math.min(2.0, item.weight + increment));
+        return { ...item, weight: newWeight };
+      }
+      return item;
+    }));
   };
 
   const handleCreate = () => {
     if (selectedShades.length === 0) return;
-    onCreateShade(shadeName, selectedShades);
+    
+    // Pass all selected shades to create function (the parent will handle the blending)
+    onCreateShade(shadeName, selectedShades.map(item => item.shade));
   };
 
   // Filter shades by active category
@@ -116,27 +146,53 @@ export default function CreateShadePanel({ onClose, onCreateShade, existingShade
           </div>
         </div>
         
-        {/* Selected shades */}
+        {/* Selected shades with weight adjustment */}
         {selectedShades.length > 0 && (
           <div className="px-4 pb-4">
             <h3 className="text-sm font-medium text-white/70 mb-2">Selected Shades:</h3>
-            <div className="flex flex-wrap gap-2">
-              {selectedShades.map(shade => (
+            <div className="space-y-2">
+              {selectedShades.map(item => (
                 <div 
-                  key={shade.id} 
-                  className="flex items-center bg-white/10 rounded-full pl-2 pr-1 py-1"
+                  key={item.shade.id} 
+                  className="flex items-center justify-between bg-white/10 rounded-lg p-2"
                 >
-                  <div 
-                    className="w-4 h-4 rounded-full mr-1"
-                    style={{ backgroundColor: shade.colorHex }}
-                  />
-                  <span className="text-xs text-white mr-1">{shade.name}</span>
-                  <button
-                    onClick={() => removeSelectedShade(shade)}
-                    className="p-1 text-white/70 hover:text-white"
-                  >
-                    <X size={14} />
-                  </button>
+                  <div className="flex items-center">
+                    <div 
+                      className="w-8 h-8 rounded-full mr-2"
+                      style={{ backgroundColor: item.shade.colorHex }}
+                    />
+                    <span className="text-sm text-white">{item.shade.name}</span>
+                  </div>
+                  
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs text-white/70 w-8 text-center">
+                      {Math.round(item.weight * 10) * 10}%
+                    </span>
+                    
+                    <button
+                      onClick={() => adjustShadeWeight(item.shade.id, -0.1)}
+                      className="p-1 bg-white/20 rounded-full text-white/70 hover:text-white"
+                      aria-label="Decrease weight"
+                    >
+                      <Minus size={14} />
+                    </button>
+                    
+                    <button
+                      onClick={() => adjustShadeWeight(item.shade.id, 0.1)}
+                      className="p-1 bg-white/20 rounded-full text-white/70 hover:text-white"
+                      aria-label="Increase weight"
+                    >
+                      <Plus size={14} />
+                    </button>
+                    
+                    <button
+                      onClick={() => removeSelectedShade(item.shade)}
+                      className="p-1 bg-white/20 rounded-full text-white/70 hover:text-white"
+                      aria-label="Remove shade"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -169,12 +225,15 @@ export default function CreateShadePanel({ onClose, onCreateShade, existingShade
               key={shade.id}
               onClick={() => toggleShadeSelection(shade)}
               className="flex flex-col items-center"
+              disabled={selectedShades.length >= maxSelection && !selectedShades.some(s => s.shade.id === shade.id)}
             >
               <div 
                 className={`w-14 h-14 rounded-full ${
-                  selectedShades.some(s => s.id === shade.id)
+                  selectedShades.some(s => s.shade.id === shade.id)
                     ? 'ring-2 ring-white scale-110'
-                    : 'border border-white/20'
+                    : selectedShades.length >= maxSelection
+                      ? 'border border-white/10 opacity-50'
+                      : 'border border-white/20'
                 }`}
                 style={{ backgroundColor: shade.colorHex }}
               />
