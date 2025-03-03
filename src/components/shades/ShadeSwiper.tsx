@@ -1,14 +1,12 @@
 'use client';
 
-import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { motion } from 'framer-motion';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { Swiper, SwiperSlide } from 'swiper/react';
-import { Pagination, FreeMode } from 'swiper/modules';
+import { FreeMode } from 'swiper/modules';
 import 'swiper/css';
-import 'swiper/css/pagination';
 import 'swiper/css/free-mode';
 import { Shade } from '@/types/shades';
-import cn from 'classnames';
+import classNames from 'classnames';
 
 interface ShadeSwiperProps {
   onSelectShade: (shade: Shade) => void;
@@ -24,10 +22,14 @@ export default function ShadeSwiper({
   builtInShades
 }: ShadeSwiperProps) {
   const [activeTab, setActiveTab] = useState<'default' | 'custom'>('default');
-  const [currentShades, setCurrentShades] = useState<Shade[]>(builtInShades);
   const [slidesPerView, setSlidesPerView] = useState(5);
   const swiperRef = useRef<any>(null);
   
+  // Memoized current shades based on active tab
+  const currentShades = useMemo(() => {
+    return activeTab === 'default' ? builtInShades : customShades;
+  }, [activeTab, builtInShades, customShades]);
+
   // Handle window resize to adjust slides per view
   useEffect(() => {
     const handleResize = () => {
@@ -45,21 +47,19 @@ export default function ShadeSwiper({
       }
     };
     
-    window.addEventListener('resize', handleResize);
+    const debouncedResize = debounce(handleResize, 200);
+    window.addEventListener('resize', debouncedResize);
     handleResize(); // Initial call
     
-    return () => window.removeEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', debouncedResize);
   }, []);
   
-  // Update displayed shades based on active tab
+  // Reset swiper position when changing tabs
   useEffect(() => {
-    setCurrentShades(activeTab === 'default' ? builtInShades : customShades);
-    
-    // Reset swiper position when changing tabs
     if (swiperRef.current?.swiper) {
       swiperRef.current.swiper.slideTo(0);
     }
-  }, [activeTab, customShades, builtInShades]);
+  }, [activeTab]);
   
   // Handle shade selection with haptic feedback if available
   const handleSelectShade = useCallback((shade: Shade) => {
@@ -74,6 +74,45 @@ export default function ShadeSwiper({
     
     onSelectShade(shade);
   }, [onSelectShade]);
+
+  // Simple debounce function
+  function debounce(fn: Function, ms: number) {
+    let timeoutId: ReturnType<typeof setTimeout>;
+    return function(this: any, ...args: any[]) {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => fn.apply(this, args), ms);
+    };
+  }
+  
+  // Render shade item
+  const renderShadeItem = useCallback((shade: Shade) => {
+    const isSelected = selectedShade?.id === shade.id;
+    
+    return (
+      <SwiperSlide key={shade.id}>
+        <button
+          onClick={() => handleSelectShade(shade)}
+          className={classNames(
+            "flex flex-col items-center w-full",
+            isSelected ? "scale-110" : ""
+          )}
+        >
+          <div 
+            className={classNames(
+              "w-12 h-12 rounded-full border-2 transition-transform",
+              isSelected 
+                ? "border-white shadow-lg" 
+                : "border-transparent"
+            )}
+            style={{ backgroundColor: shade.colorHex }}
+          />
+          <span className="text-[10px] text-white mt-1 truncate max-w-full">
+            {shade.name}
+          </span>
+        </button>
+      </SwiperSlide>
+    );
+  }, [selectedShade, handleSelectShade]);
   
   return (
     <div className="w-full">
@@ -82,7 +121,7 @@ export default function ShadeSwiper({
         <div className="flex bg-white/10 rounded-full p-1">
           <button
             onClick={() => setActiveTab('default')}
-            className={cn(
+            className={classNames(
               "px-4 py-1 text-xs font-medium rounded-full transition-colors",
               activeTab === 'default' 
                 ? "bg-white text-black" 
@@ -94,58 +133,35 @@ export default function ShadeSwiper({
           
           <button
             onClick={() => setActiveTab('custom')}
-            className={cn(
+            className={classNames(
               "px-4 py-1 text-xs font-medium rounded-full transition-colors",
               activeTab === 'custom' 
                 ? "bg-white text-black" 
                 : "text-white/80 hover:text-white"
             )}
-            disabled={customShades.length === 0}
           >
-            Custom
+            Custom {customShades.length > 0 && `(${customShades.length})`}
           </button>
         </div>
       </div>
       
       {/* Shades swiper */}
-      <Swiper
-        ref={swiperRef}
-        slidesPerView={slidesPerView}
-        spaceBetween={8}
-        freeMode={true}
-        modules={[FreeMode, Pagination]}
-        className="w-full"
-      >
-        {currentShades.map((shade) => (
-          <SwiperSlide key={shade.id}>
-            <button
-              onClick={() => handleSelectShade(shade)}
-              className={cn(
-                "flex flex-col items-center w-full",
-                selectedShade?.id === shade.id ? "scale-110" : ""
-              )}
-            >
-              <div 
-                className={cn(
-                  "w-12 h-12 rounded-full border-2 transition-transform",
-                  selectedShade?.id === shade.id 
-                    ? "border-white shadow-lg" 
-                    : "border-transparent"
-                )}
-                style={{ backgroundColor: shade.colorHex }}
-              />
-              <span className="text-[10px] text-white mt-1 truncate max-w-full">
-                {shade.name}
-              </span>
-            </button>
-          </SwiperSlide>
-        ))}
-      </Swiper>
-      
-      {/* Empty state for custom shades */}
-      {activeTab === 'custom' && customShades.length === 0 && (
+      {currentShades.length > 0 ? (
+        <Swiper
+          ref={swiperRef}
+          slidesPerView={slidesPerView}
+          spaceBetween={8}
+          freeMode={true}
+          modules={[FreeMode]}
+          className="w-full"
+        >
+          {currentShades.map(renderShadeItem)}
+        </Swiper>
+      ) : (
         <div className="text-center py-4 text-white/60 text-xs">
-          No custom shades yet. Create one using the palette button.
+          {activeTab === 'custom' 
+            ? "No custom shades yet. Create one using the palette button." 
+            : "No default shades available."}
         </div>
       )}
     </div>

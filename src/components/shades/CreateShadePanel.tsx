@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { X, Check, Trash2, ArrowLeft, Plus, Minus } from 'lucide-react';
+import { Check, X, Plus, Minus } from 'lucide-react';
 import { Shade, ShadeCategory } from '@/types/shades';
 
 interface ShadeWithWeight {
@@ -21,8 +21,8 @@ export default function CreateShadePanel({ onClose, onCreateShade, existingShade
   const [shadeName, setShadeName] = useState('Custom Shade');
   const [previewColor, setPreviewColor] = useState('#f5e6e0');
   const [activeCategory, setActiveCategory] = useState<ShadeCategory>('Fair');
-  const maxSelection = 4; // Changed to max 4 shades
-  const categories: ShadeCategory[] = ['Fair', 'Light', 'Medium', 'Medium Deep', 'Deep'];
+  const maxSelection = 4; // Max 4 shades for blending
+  const categories: ShadeCategory[] = ['Fair', 'Light', 'Medium', 'Medium Deep', 'Deep', 'Custom'];
 
   // Calculate RGB values for selected shades taking weight into account
   const calculateBlendedColor = () => {
@@ -97,7 +97,8 @@ export default function CreateShadePanel({ onClose, onCreateShade, existingShade
 
   // Filter shades by active category
   const filteredShades = useMemo(() => {
-    return [...existingShades].filter(shade => shade.category === activeCategory);
+    if (!existingShades) return [];
+    return existingShades.filter(shade => shade.category === activeCategory);
   }, [existingShades, activeCategory]);
 
   return (
@@ -164,7 +165,7 @@ export default function CreateShadePanel({ onClose, onCreateShade, existingShade
                     <span className="text-sm text-white">{item.shade.name}</span>
                   </div>
                   
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center gap-2">
                     <span className="text-xs text-white/70 w-8 text-center">
                       {Math.round(item.weight * 10) * 10}%
                     </span>
@@ -200,7 +201,7 @@ export default function CreateShadePanel({ onClose, onCreateShade, existingShade
         )}
         
         {/* Category tabs */}
-        <div className="px-4 overflow-x-auto">
+        <div className="overflow-x-auto px-4">
           <div className="flex space-x-2 pb-2">
             {categories.map(category => (
               <button
@@ -220,28 +221,34 @@ export default function CreateShadePanel({ onClose, onCreateShade, existingShade
         
         {/* Shade grid */}
         <div className="p-4 grid grid-cols-4 gap-3">
-          {filteredShades.map(shade => (
-            <button
-              key={shade.id}
-              onClick={() => toggleShadeSelection(shade)}
-              className="flex flex-col items-center"
-              disabled={selectedShades.length >= maxSelection && !selectedShades.some(s => s.shade.id === shade.id)}
-            >
-              <div 
-                className={`w-14 h-14 rounded-full ${
-                  selectedShades.some(s => s.shade.id === shade.id)
-                    ? 'ring-2 ring-white scale-110'
-                    : selectedShades.length >= maxSelection
-                      ? 'border border-white/10 opacity-50'
-                      : 'border border-white/20'
-                }`}
-                style={{ backgroundColor: shade.colorHex }}
-              />
-              <span className="text-xs text-white/80 mt-1 text-center line-clamp-1">
-                {shade.name}
-              </span>
-            </button>
-          ))}
+          {filteredShades && filteredShades.length > 0 ? (
+            filteredShades.map(shade => (
+              <button
+                key={shade.id}
+                onClick={() => toggleShadeSelection(shade)}
+                className="flex flex-col items-center"
+                disabled={selectedShades.length >= maxSelection && !selectedShades.some(s => s.shade.id === shade.id)}
+              >
+                <div 
+                  className={`w-14 h-14 rounded-full ${
+                    selectedShades.some(s => s.shade.id === shade.id)
+                      ? 'ring-2 ring-white scale-110'
+                      : selectedShades.length >= maxSelection
+                        ? 'border border-white/10 opacity-50'
+                        : 'border border-white/20'
+                  }`}
+                  style={{ backgroundColor: shade.colorHex }}
+                />
+                <span className="text-xs text-white/80 mt-1 text-center line-clamp-1">
+                  {shade.name}
+                </span>
+              </button>
+            ))
+          ) : (
+            <div className="col-span-4 text-center py-8 text-white/50">
+              No shades available in this category
+            </div>
+          )}
         </div>
       </div>
     </motion.div>
