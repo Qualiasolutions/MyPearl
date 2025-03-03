@@ -2,64 +2,61 @@
 
 import React from 'react';
 import { motion } from 'framer-motion';
-import { CheckCircle, XCircle, Loader2, AlertCircle } from 'lucide-react';
+import { CheckCircle, XCircle, Loader2 } from 'lucide-react';
 
 interface Props {
   isModelLoading: boolean;
-  isFaceDetected: boolean;
-  facePosition: {
-    isGood: boolean;
-    message: string;
-  };
-  error: string | null;
+  isGoodPosition: boolean;
+  message: string;
+  selectedShade?: string;
 }
 
-export default function StatusIndicators({ isModelLoading, isFaceDetected, facePosition, error }: Props) {
+export default function StatusIndicators({ 
+  isModelLoading, 
+  isGoodPosition, 
+  message,
+  selectedShade
+}: Props) {
   return (
     <motion.div 
-      className="absolute top-4 left-4 flex flex-col gap-2 z-50"
-      initial={{ opacity: 0, x: -20 }}
-      animate={{ opacity: 1, x: 0 }}
+      className="absolute top-4 left-1/2 transform -translate-x-1/2 flex flex-col items-center gap-2 z-30"
+      initial={{ opacity: 0, y: -10 }}
+      animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
     >
-      {/* Model Status */}
-      <div className="flex items-center gap-2 bg-black/50 backdrop-blur-sm px-3 py-1 rounded-full">
-        {!isModelLoading ? (
-          <CheckCircle size={16} className="text-emerald-400" />
-        ) : (
-          <Loader2 size={16} className="text-amber-400 animate-spin" />
-        )}
-        <span className="text-xs text-white">AI Model</span>
-      </div>
-      
-      {/* Face Detection Status */}
-      <div className="flex items-center gap-2 bg-black/50 backdrop-blur-sm px-3 py-1 rounded-full">
-        {isFaceDetected ? (
-          <CheckCircle size={16} className="text-emerald-400" />
-        ) : (
-          <XCircle size={16} className="text-rose-400" />
-        )}
-        <span className="text-xs text-white">Face Detected</span>
-      </div>
-      
-      {/* Face Position Status */}
-      {isFaceDetected && (
-        <div className="flex items-center gap-2 bg-black/50 backdrop-blur-sm px-3 py-1 rounded-full">
-          {facePosition.isGood ? (
-            <CheckCircle size={16} className="text-emerald-400" />
-          ) : (
-            <AlertCircle size={16} className="text-amber-400" />
-          )}
-          <span className="text-xs text-white">Positioning</span>
+      {/* Loading indicator */}
+      {isModelLoading && (
+        <div className="bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full flex items-center gap-2">
+          <Loader2 size={16} className="text-white animate-spin" />
+          <span className="text-sm text-white font-medium">Loading face detection...</span>
         </div>
       )}
       
-      {/* Error Indicator */}
-      {error && (
-        <div className="flex items-center gap-2 bg-rose-600/30 backdrop-blur-sm px-3 py-1 rounded-full">
-          <AlertCircle size={16} className="text-rose-400" />
-          <span className="text-xs text-white">Error</span>
+      {/* Face positioning message */}
+      {!isModelLoading && (
+        <div 
+          className={`bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full flex items-center gap-2 ${
+            isGoodPosition ? 'border border-green-500/50' : ''
+          }`}
+        >
+          {isGoodPosition ? (
+            <CheckCircle size={16} className="text-green-500" />
+          ) : (
+            <XCircle size={16} className="text-white" />
+          )}
+          <span className="text-sm text-white font-medium">{message}</span>
         </div>
+      )}
+      
+      {/* Selected shade indicator */}
+      {selectedShade && isGoodPosition && (
+        <motion.div 
+          className="bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full mt-2"
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+        >
+          <span className="text-sm text-white font-medium">Applied: {selectedShade}</span>
+        </motion.div>
       )}
     </motion.div>
   );

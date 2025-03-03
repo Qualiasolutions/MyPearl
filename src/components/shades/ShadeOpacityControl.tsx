@@ -6,13 +6,13 @@ import { Sliders, EyeOff, Eye, X } from 'lucide-react';
 
 interface Props {
   opacity: number;
-  setOpacity: (opacity: number) => void;
+  onOpacityChange: (opacity: number) => void;
   onClose: () => void;
 }
 
-export default function ShadeOpacityControl({ opacity, setOpacity, onClose }: Props) {
+export default function ShadeOpacityControl({ opacity, onOpacityChange, onClose }: Props) {
   const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setOpacity(parseFloat(e.target.value));
+    onOpacityChange(parseFloat(e.target.value));
   };
 
   return (
@@ -89,7 +89,7 @@ export default function ShadeOpacityControl({ opacity, setOpacity, onClose }: Pr
             {[0.25, 0.5, 0.75].map((value) => (
               <button
                 key={value}
-                onClick={() => setOpacity(value)}
+                onClick={() => onOpacityChange(value)}
                 className={`
                   py-1.5 text-xs font-medium rounded-md transition
                   ${Math.abs(opacity - value) < 0.05

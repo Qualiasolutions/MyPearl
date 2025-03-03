@@ -5,7 +5,7 @@ export interface Shade {
   colorHex: string;
 }
 
-export type ShadeCategory = 'Fair' | 'Light' | 'Medium' | 'Medium Deep' | 'Deep';
+export type ShadeCategory = 'Fair' | 'Light' | 'Medium' | 'Medium Deep' | 'Deep' | 'Custom';
 
 export const SHADE_DATA: Shade[] = [
   // Fair

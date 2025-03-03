@@ -20,11 +20,21 @@ interface DetectedFace {
   };
 }
 
+interface FacePosition {
+  isGood: boolean;
+  message: string;
+  center?: { x: number; y: number };
+}
+
 interface Props {
-  detectedFace: DetectedFace;
-  selectedShade: Shade;
+  detectedFace: DetectedFace | null;
+  selectedShade: Shade | null;
+  facePosition: FacePosition;
   isMirrored: boolean;
   opacity: number;
+  isFaceDetected: boolean;
+  videoWidth: number;
+  videoHeight: number;
 }
 
 // Constants for face outline parts - optimized landmarks for better mapping
@@ -45,9 +55,17 @@ const CHIN = [18, 200, 199, 175, 152, 400, 377, 152, 148, 176, 149, 150, 136, 17
 const LEFT_CHEEK = [123, 50, 36, 49, 48, 115, 131, 142, 214, 212, 216, 206, 203, 129, 114, 121, 120, 119, 118, 117, 111, 116, 123];
 const RIGHT_CHEEK = [352, 280, 266, 279, 278, 344, 353, 363, 434, 432, 436, 426, 423, 358, 343, 351, 350, 349, 348, 347, 346, 345, 352];
 
-export default function FaceOverlay({ detectedFace, selectedShade, isMirrored, opacity = 0.65 }: Props) {
+export default function FaceOverlay({ 
+  detectedFace, 
+  selectedShade, 
+  facePosition,
+  isMirrored, 
+  opacity = 0.65,
+  isFaceDetected,
+  videoWidth,
+  videoHeight
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const { isFaceDetected } = useFaceDetectionStore();
   
   // Parse the shade color to get RGBA values with better alpha handling
   const getRGBAComponents = (color: string): [number, number, number, number] => {
@@ -74,13 +92,74 @@ export default function FaceOverlay({ detectedFace, selectedShade, isMirrored, o
     return [245, 230, 224, opacity];
   };
   
-  // Extract color from shader
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    // Set canvas dimensions to match video
+    canvas.width = videoWidth;
+    canvas.height = videoHeight;
+    
+    // Clear canvas for new rendering
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Only render shade if face is detected and shade is selected
+    if (detectedFace && selectedShade && isFaceDetected) {
+      renderCanvas();
+    } else {
+      // Draw face position guide if no shade is applied
+      if (facePosition.center && !selectedShade) {
+        drawFacePositionGuide(ctx, facePosition);
+      }
+    }
+  }, [detectedFace, selectedShade, isFaceDetected, opacity, isMirrored, videoWidth, videoHeight, facePosition]);
+  
+  // Draw a guide to help users position their face
+  const drawFacePositionGuide = (
+    ctx: CanvasRenderingContext2D, 
+    facePosition: FacePosition
+  ) => {
+    if (!facePosition.center) return;
+    
+    // Draw a circle around the detected face
+    const { x, y } = facePosition.center;
+    const radius = videoHeight * 0.15; // Adjust size based on video height
+    
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.strokeStyle = facePosition.isGood ? 'rgba(0, 255, 0, 0.5)' : 'rgba(255, 255, 255, 0.5)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    
+    // Draw crosshair for center targeting
+    if (!facePosition.isGood) {
+      // Horizontal line
+      ctx.beginPath();
+      ctx.moveTo(x - radius / 2, y);
+      ctx.lineTo(x + radius / 2, y);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      
+      // Vertical line
+      ctx.beginPath();
+      ctx.moveTo(x, y - radius / 2);
+      ctx.lineTo(x, y + radius / 2);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  };
+  
   const getShadeColor = (): string => {
-    return selectedShade?.colorHex || '#F5E6E0'; // Provide default color if no shade selected
+    return selectedShade ? selectedShade.colorHex : 'rgba(255, 255, 255, 0)';
   };
   
   // Handle canvas drawing with requestAnimationFrame for smoother rendering
-  useEffect(() => {
+  const renderCanvas = () => {
     let animationFrameId: number;
     
     const renderCanvas = () => {
@@ -134,7 +213,7 @@ export default function FaceOverlay({ detectedFace, selectedShade, isMirrored, o
         cancelAnimationFrame(animationFrameId);
       }
     };
-  }, [detectedFace, selectedShade, opacity, isFaceDetected, isMirrored]);
+  };
   
   // Render concealer mask with improved blending
   const renderConcealerMask = (
@@ -387,9 +466,7 @@ export default function FaceOverlay({ detectedFace, selectedShade, isMirrored, o
   return (
     <canvas
       ref={canvasRef}
-      className="absolute top-0 left-0 w-full h-full pointer-events-none z-20"
-      width={detectedFace?.box?.width ? detectedFace.box.width * 4 : 640}
-      height={detectedFace?.box?.height ? detectedFace.box.height * 3 : 480}
+      className="absolute inset-0 z-10 w-full h-full pointer-events-none"
     />
   );
 }
