@@ -17,6 +17,14 @@ export default function StatusIndicators({
   message,
   selectedShade
 }: Props) {
+  // More helpful messages based on state
+  const getStatusMessage = () => {
+    if (isModelLoading) return 'Loading face detection...';
+    if (!isGoodPosition) return 'Keep your face centered';
+    if (selectedShade) return `${selectedShade} applied`;
+    return 'Face detected - Select a shade';
+  };
+
   return (
     <motion.div 
       className="absolute top-4 left-1/2 transform -translate-x-1/2 flex flex-col items-center gap-2 z-30"
@@ -24,40 +32,21 @@ export default function StatusIndicators({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
     >
-      {/* Loading indicator */}
-      {isModelLoading && (
-        <div className="bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full flex items-center gap-2">
+      {/* Main status indicator */}
+      <div 
+        className={`bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full flex items-center gap-2 ${
+          isGoodPosition && !isModelLoading ? 'border border-green-500/50' : ''
+        }`}
+      >
+        {isModelLoading ? (
           <Loader2 size={16} className="text-white animate-spin" />
-          <span className="text-sm text-white font-medium">Loading face detection...</span>
-        </div>
-      )}
-      
-      {/* Face positioning message */}
-      {!isModelLoading && (
-        <div 
-          className={`bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full flex items-center gap-2 ${
-            isGoodPosition ? 'border border-green-500/50' : ''
-          }`}
-        >
-          {isGoodPosition ? (
-            <CheckCircle size={16} className="text-green-500" />
-          ) : (
-            <XCircle size={16} className="text-white" />
-          )}
-          <span className="text-sm text-white font-medium">{message}</span>
-        </div>
-      )}
-      
-      {/* Selected shade indicator */}
-      {selectedShade && isGoodPosition && (
-        <motion.div 
-          className="bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full mt-2"
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-        >
-          <span className="text-sm text-white font-medium">Applied: {selectedShade}</span>
-        </motion.div>
-      )}
+        ) : isGoodPosition ? (
+          <CheckCircle size={16} className="text-green-500" />
+        ) : (
+          <XCircle size={16} className="text-white" />
+        )}
+        <span className="text-sm text-white font-medium">{getStatusMessage()}</span>
+      </div>
     </motion.div>
   );
 } 

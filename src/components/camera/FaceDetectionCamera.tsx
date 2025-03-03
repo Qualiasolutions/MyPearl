@@ -46,7 +46,7 @@ export default function FaceDetectionCamera() {
   const [isModelLoading, setIsModelLoading] = useState(true);
   const [model, setModel] = useState<faceLandmarksDetection.FaceLandmarksDetector | null>(null);
   const [detectedFace, setDetectedFace] = useState<DetectedFace | null>(null);
-  const [facePosition, setFacePosition] = useState<FacePosition>({ isGood: false, message: 'Align your face in the circle' });
+  const [facePosition, setFacePosition] = useState<FacePosition>({ isGood: false, message: 'Align your face in center' });
   const [selectedShade, setSelectedShade] = useState<Shade | null>(null);
   const [isCreateShadeOpen, setIsCreateShadeOpen] = useState(false);
   const [isOpacityControlOpen, setIsOpacityControlOpen] = useState(false);
@@ -55,7 +55,7 @@ export default function FaceDetectionCamera() {
   const [isCameraInitialized, setIsCameraInitialized] = useState(false);
   const [opacity, setOpacity] = useState(0.65);
   const [retryCount, setRetryCount] = useState(0);
-  const [isCameraMirrored, setIsCameraMirrored] = useState(false); // Non-flipped by default
+  const [isCameraMirrored, setIsCameraMirrored] = useState(true); // Use front camera by default (mirrored)
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   
   // Use the face detection store
@@ -65,26 +65,46 @@ export default function FaceDetectionCamera() {
   const [videoWidth, setVideoWidth] = useState(0);
   const [videoHeight, setVideoHeight] = useState(0);
   
+  // Get window dimensions for responsive camera
+  const [windowDimensions, setWindowDimensions] = useState({
+    width: typeof window !== 'undefined' ? window.innerWidth : 0,
+    height: typeof window !== 'undefined' ? window.innerHeight : 0,
+  });
+  
   // Detect if we're on mobile
   const [isMobile, setIsMobile] = useState(false);
   
+  // Update window dimensions on resize
   useEffect(() => {
-    const checkMobile = () => {
+    const handleResize = () => {
+      setWindowDimensions({
+        width: window.innerWidth,
+        height: window.innerHeight
+      });
       setIsMobile(window.innerWidth <= 768);
     };
     
-    window.addEventListener('resize', checkMobile);
-    checkMobile();
+    window.addEventListener('resize', handleResize);
+    handleResize(); // Initialize
     
-    return () => window.removeEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Video constraints for portrait mode on mobile
+  // Calculate camera height to be 60-75% of screen height
+  const getCameraContainerStyle = () => {
+    const heightPercentage = isMobile ? 70 : 65; // 70% on mobile, 65% on desktop
+    return {
+      height: `${heightPercentage}vh`,
+      maxHeight: `${heightPercentage}vh`
+    };
+  };
+
+  // Video constraints for portrait mode with front camera
   const videoConstraints = {
     width: isMobile ? { ideal: 1080 } : { ideal: 1280 },
     height: isMobile ? { ideal: 1920 } : { ideal: 720 },
-    facingMode: isCameraMirrored ? 'user' : 'environment',
-    aspectRatio: isMobile ? 9/16 : 16/9, // Portrait mode on mobile
+    facingMode: 'user', // Always use front camera
+    aspectRatio: isMobile ? 9/16 : 16/9, // Portrait mode
   };
   
   // Load TensorFlow and face detection
@@ -240,36 +260,28 @@ export default function FaceDetectionCamera() {
     const distanceX = Math.abs(faceCenterX - idealCenterX);
     const distanceY = Math.abs(faceCenterY - idealCenterY);
     
-    // Calculate maximum allowed distance (20% of dimensions)
-    const maxDistanceX = videoWidth * 0.2;
-    const maxDistanceY = videoHeight * 0.2;
+    // Calculate maximum allowed distance (30% of dimensions - more forgiving)
+    const maxDistanceX = videoWidth * 0.3;
+    const maxDistanceY = videoHeight * 0.3;
     
     // Check if face is centered enough
     const isCentered = distanceX <= maxDistanceX && distanceY <= maxDistanceY;
     
-    // Check if face is large enough (at least 25% of screen height)
-    const isLargeEnough = face.box.height >= videoHeight * 0.25;
+    // Check if face is large enough (at least 20% of screen height - more forgiving)
+    const isLargeEnough = face.box.height >= videoHeight * 0.2;
+    
+    // Consider face position good if either criteria is met - more lenient
+    const isGoodPosition = isCentered || isLargeEnough;
     
     // Update face position state
-    if (isCentered && isLargeEnough) {
-      setFacePosition({
-        isGood: true,
-        message: 'Face detected',
-        center: { x: faceCenterX, y: faceCenterY }
-      });
-    } else if (!isCentered) {
-      setFacePosition({
-        isGood: false,
-        message: 'Center your face',
-        center: { x: faceCenterX, y: faceCenterY }
-      });
-    } else if (!isLargeEnough) {
-      setFacePosition({
-        isGood: false,
-        message: 'Move closer',
-        center: { x: faceCenterX, y: faceCenterY }
-      });
-    }
+    setFacePosition({
+      isGood: isGoodPosition,
+      message: isGoodPosition ? 'Face detected' : 'Center your face',
+      center: { x: faceCenterX, y: faceCenterY }
+    });
+    
+    // Always consider face as detected if any face is found
+    setFaceDetected(true);
   };
 
   const handleShadeSelection = (shade: Shade) => {
@@ -386,13 +398,16 @@ export default function FaceDetectionCamera() {
   const renderMainInterface = () => (
     <div className="relative w-full h-full flex flex-col">
       {/* Camera and Face Detection */}
-      <div className="relative flex-grow">
+      <div 
+        className="relative flex-grow overflow-hidden"
+        style={getCameraContainerStyle()}
+      >
         <Webcam
           audio={false}
           ref={webcamRef}
           screenshotFormat="image/png"
           videoConstraints={videoConstraints}
-          mirrored={isCameraMirrored}
+          mirrored={true} // Always mirror for front camera
           className="w-full h-full object-cover"
           onUserMedia={() => setIsCameraInitialized(true)}
         />
@@ -406,7 +421,7 @@ export default function FaceDetectionCamera() {
           isFaceDetected={isFaceDetected}
           videoWidth={videoWidth}
           videoHeight={videoHeight}
-          isMirrored={isCameraMirrored}
+          isMirrored={true} // Always mirror for consistent UI
         />
         
         {/* Status indicators */}
@@ -418,8 +433,8 @@ export default function FaceDetectionCamera() {
         />
       </div>
       
-      {/* Bottom Toolbar */}
-      <div className="relative bg-black bg-opacity-80 px-2 py-3">
+      {/* Bottom Toolbar - take remaining height */}
+      <div className="relative bg-black bg-opacity-80 px-2 py-3 flex-grow">
         {/* Shade swiper */}
         <ShadeSwiper
           onSelectShade={handleShadeSelection}

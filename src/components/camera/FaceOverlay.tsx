@@ -109,50 +109,9 @@ export default function FaceOverlay({
     // Only render shade if face is detected and shade is selected
     if (detectedFace && selectedShade && isFaceDetected) {
       renderCanvas();
-    } else {
-      // Draw face position guide if no shade is applied
-      if (facePosition.center && !selectedShade) {
-        drawFacePositionGuide(ctx, facePosition);
-      }
     }
+    // Remove guide circle completely - we don't want to show it
   }, [detectedFace, selectedShade, isFaceDetected, opacity, isMirrored, videoWidth, videoHeight, facePosition]);
-  
-  // Draw a guide to help users position their face
-  const drawFacePositionGuide = (
-    ctx: CanvasRenderingContext2D, 
-    facePosition: FacePosition
-  ) => {
-    if (!facePosition.center) return;
-    
-    // Draw a circle around the detected face
-    const { x, y } = facePosition.center;
-    const radius = videoHeight * 0.15; // Adjust size based on video height
-    
-    ctx.beginPath();
-    ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.strokeStyle = facePosition.isGood ? 'rgba(0, 255, 0, 0.5)' : 'rgba(255, 255, 255, 0.5)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    
-    // Draw crosshair for center targeting
-    if (!facePosition.isGood) {
-      // Horizontal line
-      ctx.beginPath();
-      ctx.moveTo(x - radius / 2, y);
-      ctx.lineTo(x + radius / 2, y);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      
-      // Vertical line
-      ctx.beginPath();
-      ctx.moveTo(x, y - radius / 2);
-      ctx.lineTo(x, y + radius / 2);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-    }
-  };
   
   const getShadeColor = (): string => {
     return selectedShade ? selectedShade.colorHex : 'rgba(255, 255, 255, 0)';
