@@ -6,7 +6,7 @@
     "predev": "node scripts/generate-certificates.js",
     "dev": "node server.js",
     "build": "next build",
-    "start": "next start",
+    "start": "npx serve out",
     "export": "next export || true",
     "lint": "next lint",
     "generate-certs": "node scripts/generate-certificates.js",
