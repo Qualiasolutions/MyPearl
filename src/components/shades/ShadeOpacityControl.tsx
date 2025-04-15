@@ -1,106 +1,139 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Sliders, EyeOff, Eye, X } from 'lucide-react';
+import { X, Minus, Plus } from 'lucide-react';
 
 interface Props {
   opacity: number;
-  onOpacityChange: (opacity: number) => void;
+  setOpacity: (opacity: number) => void;
   onClose: () => void;
 }
 
-export default function ShadeOpacityControl({ opacity, onOpacityChange, onClose }: Props) {
-  const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    onOpacityChange(parseFloat(e.target.value));
+export default function ShadeOpacityControl({ opacity, setOpacity, onClose }: Props) {
+  const [localOpacity, setLocalOpacity] = useState(opacity);
+  
+  // Preset opacity levels for quick selection
+  const opacityPresets = [0.25, 0.5, 0.75, 1.0];
+  
+  // Apply local opacity to parent state when component unmounts
+  useEffect(() => {
+    return () => {
+      setOpacity(localOpacity);
+    };
+  }, [localOpacity, setOpacity]);
+  
+  // Handle slider change
+  const handleOpacityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setLocalOpacity(parseFloat(e.target.value));
   };
-
+  
+  // Adjust opacity with buttons by 0.05 (5%) increments
+  const adjustOpacity = (amount: number) => {
+    const newOpacity = Math.max(0.05, Math.min(1, localOpacity + amount));
+    setLocalOpacity(newOpacity);
+  };
+  
+  // Apply current opacity immediately
+  const applyOpacity = () => {
+    setOpacity(localOpacity);
+  };
+  
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 20 }}
-      className="absolute bottom-24 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-xs"
+      className="fixed inset-x-0 bottom-0 z-30 bg-black/95 backdrop-blur-sm border-t border-white/20 rounded-t-3xl shadow-xl" 
     >
-      <div className="bg-white rounded-xl shadow-xl overflow-hidden">
-        <div className="p-3 border-b border-neutral-100 flex items-center justify-between">
-          <div className="flex items-center">
-            <Sliders size={16} className="text-neutral-500 mr-2" />
-            <span className="text-sm font-medium text-neutral-800">Opacity Control</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="text-xs font-medium bg-neutral-100 px-2 py-1 rounded-full text-neutral-700">
-              {Math.round(opacity * 100)}%
-            </div>
-            <button 
-              onClick={onClose}
-              className="p-1 text-neutral-400 hover:text-neutral-700 rounded-full hover:bg-neutral-100"
-            >
-              <X size={16} />
-            </button>
-          </div>
+      <div className="flex flex-col px-4 pb-safe overflow-hidden max-h-[50vh]">
+        {/* Drag handle */}
+        <div className="py-3 flex justify-center">
+          <div className="w-12 h-1 bg-white/20 rounded-full" />
         </div>
         
-        <div className="p-4">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-medium text-white">Adjust Opacity</h2>
+          <button
+            onClick={onClose}
+            className="p-2 -m-2 text-white/70 hover:text-white"
+          >
+            <X size={20} />
+          </button>
+        </div>
+        
+        {/* Opacity control */}
+        <div className="flex flex-col gap-6">
+          {/* Slider with value display */}
           <div className="flex items-center gap-3">
-            <EyeOff size={16} className="text-neutral-400" />
+            <button
+              onClick={() => adjustOpacity(-0.05)}
+              className="p-2 bg-white/10 rounded-full text-white/80 hover:text-white hover:bg-white/20 transition-colors"
+              aria-label="Decrease opacity"
+            >
+              <Minus size={16} />
+            </button>
             
-            <div className="relative flex-1 h-6">
-              {/* Track */}
-              <div className="absolute inset-0 h-1 top-1/2 -translate-y-1/2 bg-neutral-200 rounded-full overflow-hidden">
-                {/* Fill */}
-                <motion.div 
-                  className="h-full bg-gradient-to-r from-neutral-400 to-neutral-700"
-                  initial={{ width: `${opacity * 100}%` }}
-                  animate={{ width: `${opacity * 100}%` }}
-                  transition={{ type: 'spring', damping: 15 }}
-                />
-              </div>
-              
-              {/* Thumb */}
-              <motion.div
-                className="absolute top-1/2 -translate-y-1/2 w-6 h-6 bg-white rounded-full shadow-md border border-neutral-200 flex items-center justify-center"
-                style={{ left: `calc(${opacity * 100}% - ${opacity * 24}px)` }}
-                initial={{ x: 0 }}
-                animate={{ x: 0 }}
-                whileTap={{ scale: 1.1 }}
-                transition={{ type: 'spring', damping: 15 }}
-              >
-                <div className="w-1.5 h-1.5 rounded-full bg-neutral-400" />
-              </motion.div>
-              
-              {/* Actual input slider (invisible but functional) */}
+            <div className="flex-grow relative">
               <input
                 type="range"
-                min="0"
+                min="0.05"
                 max="1"
                 step="0.01"
-                value={opacity}
-                onChange={handleSliderChange}
-                className="absolute inset-0 w-full opacity-0 cursor-pointer"
+                value={localOpacity}
+                onChange={handleOpacityChange}
+                onMouseUp={applyOpacity}
+                onTouchEnd={applyOpacity}
+                className="w-full h-2 bg-white/10 rounded-full appearance-none cursor-pointer accent-white"
               />
             </div>
             
-            <Eye size={16} className="text-neutral-700" />
+            <button
+              onClick={() => adjustOpacity(0.05)}
+              className="p-2 bg-white/10 rounded-full text-white/80 hover:text-white hover:bg-white/20 transition-colors"
+              aria-label="Increase opacity"
+            >
+              <Plus size={16} />
+            </button>
+            
+            <div className="w-16 text-center">
+              <span className="text-sm font-medium text-white">
+                {Math.round(localOpacity * 100)}%
+              </span>
+            </div>
           </div>
           
           {/* Preset buttons */}
-          <div className="grid grid-cols-3 gap-2 mt-4">
-            {[0.25, 0.5, 0.75].map((value) => (
+          <div className="grid grid-cols-4 gap-3 mb-6">
+            {opacityPresets.map(preset => (
               <button
-                key={value}
-                onClick={() => onOpacityChange(value)}
-                className={`
-                  py-1.5 text-xs font-medium rounded-md transition
-                  ${Math.abs(opacity - value) < 0.05
-                    ? 'bg-neutral-800 text-white'
-                    : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'}
-                `}
+                key={preset}
+                onClick={() => {
+                  setLocalOpacity(preset);
+                  setOpacity(preset);
+                }}
+                className={`py-2 rounded-lg text-sm transition-colors ${
+                  Math.abs(localOpacity - preset) < 0.02
+                    ? 'bg-white text-black'
+                    : 'bg-white/10 text-white/80 hover:bg-white/20'
+                }`}
               >
-                {Math.round(value * 100)}%
+                {Math.round(preset * 100)}%
               </button>
             ))}
           </div>
+          
+          {/* Apply button */}
+          <button
+            onClick={() => {
+              setOpacity(localOpacity);
+              onClose();
+            }}
+            className="w-full py-3 bg-white text-black rounded-lg font-medium mb-6 hover:bg-white/90 transition-colors"
+          >
+            Apply
+          </button>
         </div>
       </div>
     </motion.div>

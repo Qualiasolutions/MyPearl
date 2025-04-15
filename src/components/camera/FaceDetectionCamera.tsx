@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import Webcam from 'react-webcam';
 import * as tf from '@tensorflow/tfjs-core';
 import '@tensorflow/tfjs-backend-webgl';
@@ -13,7 +13,7 @@ import StatusIndicators from './StatusIndicators';
 import ShadeSwiper from '../shades/ShadeSwiper';
 import ShadeOpacityControl from '../shades/ShadeOpacityControl';
 import CreateShadePanel from '../shades/CreateShadePanel';
-import { Shade } from '@/types/shades';
+import { Shade, ShadeCategory } from '@/types/shades';
 import { SHADE_DATA } from '@/data/ShadeData';
 import { useFaceDetectionStore } from '@/store/FaceDetectionStore';
 
@@ -57,6 +57,7 @@ export default function FaceDetectionCamera() {
   const [opacity, setOpacity] = useState(0.65);
   const [retryCount, setRetryCount] = useState(0);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [activeCategory, setActiveCategory] = useState<ShadeCategory>('Fair');
   
   // Use the face detection store
   const { isFaceDetected, setFaceDetected } = useFaceDetectionStore();
@@ -73,6 +74,13 @@ export default function FaceDetectionCamera() {
   
   // Detect if we're on mobile
   const [isMobile, setIsMobile] = useState(false);
+  
+  // Filter shades by category
+  const filteredBuiltInShades = useMemo(() => {
+    return SHADE_DATA.filter(shade => 
+      activeCategory === 'All' ? true : shade.category === activeCategory
+    );
+  }, [activeCategory]);
   
   // Update window dimensions on resize - use a debounced version to prevent excessive re-renders
   useEffect(() => {
@@ -471,105 +479,206 @@ export default function FaceDetectionCamera() {
   }
 
   return (
-    <div className="relative w-full h-full flex flex-col bg-black">
-      {/* Camera and Face Detection */}
-      <div 
-        className="relative flex-grow overflow-hidden"
-        style={getCameraContainerStyle()}
-      >
-        <Webcam
-          audio={false}
-          ref={webcamRef}
-          screenshotFormat="image/png"
-          videoConstraints={videoConstraints}
-          mirrored={true}
-          className="w-full h-full object-cover"
-          onUserMedia={() => setIsCameraInitialized(true)}
-        />
+    <div className="flex flex-col h-screen bg-black relative overflow-hidden">
+      {/* Camera preview container with responsive height */}
+      <div className="relative flex-grow flex justify-center items-center max-h-[70vh] overflow-hidden">
+        {/* Face detection mode */}
+        {!capturedImage && (
+          <>
+            {/* Webcam container - position cover and keep aspect */}
+            <div className="relative w-full h-full">
+              <Webcam
+                ref={webcamRef}
+                videoConstraints={videoConstraints}
+                audio={false}
+                screenshotFormat="image/jpeg"
+                className="absolute inset-0 w-full h-full object-cover"
+                style={{
+                  transform: 'rotateY(180deg)' // Mirror horizontally
+                }}
+              />
+              
+              {/* Canvas overlay for debug */}
+              <canvas 
+                ref={canvasRef}
+                className="absolute inset-0 w-full h-full"
+                style={{
+                  transform: 'rotateY(180deg)', // Mirror to match webcam
+                  display: 'none' // Hide debug canvas
+                }}
+              />
+              
+              {/* Face overlay - shows detected face and applied shade */}
+              {detectedFace && selectedShade && (
+                <FaceOverlay 
+                  face={detectedFace}
+                  shade={selectedShade}
+                  videoWidth={videoWidth}
+                  videoHeight={videoHeight}
+                  opacity={opacity}
+                />
+              )}
+              
+              {/* Face position guidance */}
+              {isCameraInitialized && (
+                <FaceInstructions
+                  facePosition={facePosition}
+                  isFaceDetected={isFaceDetected}
+                />
+              )}
+              
+              {/* Status indicators */}
+              <StatusIndicators
+                isModelLoading={isModelLoading}
+                isFaceDetected={isFaceDetected}
+                selectedShade={selectedShade}
+                error={error}
+              />
+            </div>
+          </>
+        )}
         
-        {/* Overlay for face detection and visualization */}
-        {isCameraInitialized && (
-          <FaceOverlay
-            facePosition={facePosition}
-            detectedFace={detectedFace}
+        {/* Result mode (showing captured image) */}
+        {capturedImage && (
+          <div className="relative w-full h-full flex justify-center items-center bg-black">
+            <img 
+              src={capturedImage} 
+              alt="Captured selfie with makeup" 
+              className="max-w-full max-h-full object-contain"
+            />
+          </div>
+        )}
+      </div>
+      
+      {/* Bottom control panel */}
+      <div className="relative bg-black border-t border-white/10 p-4 pb-safe flex flex-col gap-4 z-10">
+        {/* Error message */}
+        {error && (
+          <div className="bg-red-900/50 border border-red-500/50 rounded-lg p-3 mb-2 flex items-center gap-2">
+            <AlertCircle size={18} className="text-red-400" />
+            <p className="text-red-200 text-sm flex-grow">{error}</p>
+            <button 
+              onClick={() => setError(null)}
+              className="text-red-400 hover:text-red-300"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        )}
+        
+        {/* Category selection */}
+        {!capturedImage && (
+          <div className="flex justify-center mb-2 overflow-x-auto no-scrollbar">
+            <div className="flex space-x-2">
+              {['All', 'Fair', 'Light', 'Medium', 'Medium Deep', 'Deep'].map((category) => (
+                <button
+                  key={category}
+                  onClick={() => setActiveCategory(category as ShadeCategory)}
+                  className={`
+                    px-3 py-1.5 rounded-full text-xs whitespace-nowrap transition-colors
+                    ${activeCategory === category 
+                      ? 'bg-white text-black' 
+                      : 'bg-white/10 text-white/70 hover:bg-white/20'}
+                  `}
+                >
+                  {category}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        
+        {/* Shade selector swiper */}
+        {!capturedImage && (
+          <ShadeSwiper
+            onSelectShade={setSelectedShade}
             selectedShade={selectedShade}
-            opacity={opacity}
-            isFaceDetected={isFaceDetected}
-            videoWidth={videoWidth}
-            videoHeight={videoHeight}
-            isMirrored={true}
+            customShades={customShades}
+            builtInShades={filteredBuiltInShades}
           />
         )}
         
-        {/* Status indicators */}
-        <StatusIndicators
-          isModelLoading={isModelLoading}
-          isGoodPosition={facePosition.isGood}
-          message={facePosition.message}
-          selectedShade={selectedShade?.name}
-        />
-      </div>
-      
-      {/* Bottom Toolbar */}
-      <div className="relative bg-black bg-opacity-90 px-2 py-3 flex-grow">
-        {/* Shade swiper */}
-        <ShadeSwiper
-          onSelectShade={handleShadeSelection}
-          selectedShade={selectedShade}
-          customShades={customShades}
-          builtInShades={SHADE_DATA}
-        />
-        
-        {/* Camera controls */}
-        <div className="flex justify-between items-center mt-4 px-2">
-          <button
-            onClick={toggleOpacityControl}
-            className="rounded-full p-3 bg-white/10 text-white"
-            aria-label="Adjust opacity"
-          >
-            <Palette size={24} />
-          </button>
-          
-          <button
-            onClick={captureImage}
-            className="rounded-full p-4 bg-white text-black"
-            aria-label="Take photo"
-            disabled={!isFaceDetected}
-          >
-            <Camera size={32} />
-          </button>
-          
-          <button
-            onClick={toggleCreateShade}
-            className="rounded-full p-3 bg-white/10 text-white"
-            aria-label="Create custom shade"
-          >
-            <Palette size={24} />
-          </button>
+        {/* Bottom action buttons */}
+        <div className="flex justify-between items-center mt-1">
+          {!capturedImage ? (
+            <>
+              {/* Create custom shade button */}
+              <button
+                onClick={() => setIsCreateShadeOpen(true)}
+                className="flex items-center gap-1 px-3 py-1.5 bg-white/10 hover:bg-white/15 rounded-full text-white/80 hover:text-white text-xs sm:text-sm transition-colors"
+              >
+                <Palette size={16} />
+                <span>Create Shade</span>
+              </button>
+              
+              {/* Opacity control toggle */}
+              {selectedShade && (
+                <button
+                  onClick={() => setIsOpacityControlOpen(!isOpacityControlOpen)}
+                  className={`px-3 py-1.5 rounded-full text-xs sm:text-sm transition-colors ${
+                    isOpacityControlOpen 
+                      ? 'bg-white text-black' 
+                      : 'bg-white/10 text-white/80 hover:text-white'
+                  }`}
+                >
+                  Opacity: {Math.round(opacity * 100)}%
+                </button>
+              )}
+              
+              {/* Capture button */}
+              <button
+                onClick={captureImage}
+                disabled={!selectedShade || !isFaceDetected || !facePosition.isGood}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium transition-colors ${
+                  !selectedShade || !isFaceDetected || !facePosition.isGood
+                    ? 'bg-white/10 text-white/30 cursor-not-allowed'
+                    : 'bg-white text-black hover:bg-white/90'
+                }`}
+              >
+                <Camera size={16} />
+                <span>Capture</span>
+              </button>
+            </>
+          ) : (
+            <>
+              {/* Retake button */}
+              <button
+                onClick={() => setCapturedImage(null)}
+                className="flex items-center gap-1 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-full text-white/80 hover:text-white text-xs sm:text-sm transition-colors"
+              >
+                <RefreshCw size={16} />
+                <span>Retake Photo</span>
+              </button>
+              
+              {/* Download button */}
+              <button
+                onClick={downloadImage}
+                className="flex items-center gap-1 px-3 py-1.5 bg-white text-black rounded-full text-xs sm:text-sm font-medium transition-colors hover:bg-white/90"
+              >
+                <Download size={16} />
+                <span>Download</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
       
-      {/* Opacity Control Sheet */}
-      <AnimatePresence>
-        {isOpacityControlOpen && (
-          <ShadeOpacityControl
-            opacity={opacity}
-            onOpacityChange={handleOpacityChange}
-            onClose={toggleOpacityControl}
-          />
-        )}
-      </AnimatePresence>
+      {/* Conditional rendering for modals */}
+      {isOpacityControlOpen && !isCreateShadeOpen && (
+        <ShadeOpacityControl
+          opacity={opacity}
+          setOpacity={setOpacity}
+          onClose={() => setIsOpacityControlOpen(false)}
+        />
+      )}
       
-      {/* Create Shade Panel */}
-      <AnimatePresence>
-        {isCreateShadeOpen && (
-          <CreateShadePanel
-            onClose={toggleCreateShade}
-            onCreateShade={createCustomShade}
-            existingShades={SHADE_DATA}
-          />
-        )}
-      </AnimatePresence>
+      {isCreateShadeOpen && (
+        <CreateShadePanel
+          onClose={() => setIsCreateShadeOpen(false)}
+          onCreateShade={createCustomShade}
+          existingShades={SHADE_DATA}
+        />
+      )}
     </div>
   );
 }
