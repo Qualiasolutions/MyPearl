@@ -568,72 +568,68 @@ export default function FaceDetectionCamera() {
         
         {!capturedImage && (
           <>
-            {/* Main action bar - Always visible */}
+            {/* Main action bar with simple controls */}
             <div className="flex items-center justify-between px-3 mb-1">
-              {/* Category dropdown/select */}
-              <div className="relative">
-                <select
-                  value={activeCategory}
-                  onChange={(e) => setActiveCategory(e.target.value as ShadeCategory)}
-                  className="appearance-none bg-white/10 text-white/90 px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium cursor-pointer border border-white/20 pr-8 focus:outline-none focus:ring-1 focus:ring-white/30"
-                >
-                  <option value="All">All Shades</option>
-                  <option value="Fair">Fair</option>
-                  <option value="Light">Light</option>
-                  <option value="Medium">Medium</option>
-                  <option value="Medium Deep">Medium Deep</option>
-                  <option value="Deep">Deep</option>
-                </select>
-                <div className="absolute right-2 top-1/2 transform -translate-y-1/2 pointer-events-none text-white/70">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="m6 9 6 6 6-6"/>
-                  </svg>
-                </div>
-              </div>
+              {/* Create custom shade button */}
+              <button
+                onClick={() => setIsCreateShadeOpen(true)}
+                className="flex items-center gap-1 px-2.5 py-1.5 bg-white/10 hover:bg-white/15 rounded-full text-white/80 hover:text-white text-xs transition-colors"
+              >
+                <Palette size={14} />
+                <span>Custom</span>
+              </button>
               
-              {/* Controls */}
-              <div className="flex items-center gap-2">
-                {/* Create custom shade button */}
-                <button
-                  onClick={() => setIsCreateShadeOpen(true)}
-                  className="flex items-center gap-1 px-2.5 py-1.5 bg-white/10 hover:bg-white/15 rounded-full text-white/80 hover:text-white text-xs sm:text-sm transition-colors"
-                >
-                  <Palette size={14} />
-                  <span className="hidden sm:inline">Custom</span>
-                </button>
-                
-                {/* Opacity slider - simplified inline version */}
-                {selectedShade && (
-                  <div className="flex items-center gap-1.5 bg-white/10 rounded-full px-2 py-1">
-                    <span className="text-xs text-white/80">{Math.round(opacity * 100)}%</span>
-                    <input
-                      type="range"
-                      min="0.2"
-                      max="1"
-                      step="0.05"
-                      value={opacity}
-                      onChange={(e) => setOpacity(parseFloat(e.target.value))}
-                      className="w-16 sm:w-20 h-1 bg-white/20 rounded-full appearance-none cursor-pointer accent-white"
-                    />
-                  </div>
-                )}
-                
-                {/* Capture button */}
-                <button
-                  onClick={captureImage}
-                  disabled={!selectedShade || !isFaceDetected || !facePosition.isGood}
-                  className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium transition-colors ${
-                    !selectedShade || !isFaceDetected || !facePosition.isGood
-                      ? 'bg-white/10 text-white/30 cursor-not-allowed'
-                      : 'bg-white text-black hover:bg-white/90'
-                  }`}
-                >
-                  <Camera size={14} />
-                  <span>Capture</span>
-                </button>
+              {/* Opacity control - simple slider */}
+              {selectedShade && (
+                <div className="flex items-center gap-1.5 bg-white/10 rounded-full px-2 py-1">
+                  <span className="text-xs text-white/80">{Math.round(opacity * 100)}%</span>
+                  <input
+                    type="range"
+                    min="0.2"
+                    max="1"
+                    step="0.05"
+                    value={opacity}
+                    onChange={(e) => setOpacity(parseFloat(e.target.value))}
+                    className="w-16 sm:w-20 h-1 bg-white/20 rounded-full appearance-none cursor-pointer accent-white"
+                  />
+                </div>
+              )}
+              
+              {/* Capture button */}
+              <button
+                onClick={captureImage}
+                disabled={!selectedShade || !isFaceDetected || !facePosition.isGood}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                  !selectedShade || !isFaceDetected || !facePosition.isGood
+                    ? 'bg-white/10 text-white/30 cursor-not-allowed'
+                    : 'bg-white text-black hover:bg-white/90'
+                }`}
+              >
+                <Camera size={14} />
+                <span>Capture</span>
+              </button>
+            </div>
+            
+            {/* Horizontal category tabs - restored */}
+            <div className="flex justify-center mb-1.5 overflow-x-auto no-scrollbar px-2">
+              <div className="flex space-x-1.5">
+                {['All', 'Fair', 'Light', 'Medium', 'Medium Deep', 'Deep'].map((category) => (
+                  <button
+                    key={category}
+                    onClick={() => setActiveCategory(category as ShadeCategory)}
+                    className={`
+                      px-2.5 py-1 rounded-full text-xs whitespace-nowrap transition-colors
+                      ${activeCategory === category 
+                        ? 'bg-white text-black font-medium' 
+                        : 'bg-white/10 text-white/80 hover:bg-white/20'}
+                    `}
+                  >
+                    {category}
+                  </button>
+                ))}
               </div>
             </div>
-          
+            
             {/* Compact shade swiper */}
             <ShadeSwiper
               onSelectShade={setSelectedShade}
@@ -649,7 +645,7 @@ export default function FaceDetectionCamera() {
           <div className="flex justify-between items-center px-4 py-2">
             <button
               onClick={() => setCapturedImage(null)}
-              className="flex items-center gap-1 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-full text-white/80 hover:text-white text-xs sm:text-sm transition-colors"
+              className="flex items-center gap-1 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-full text-white/80 hover:text-white text-xs transition-colors"
             >
               <RefreshCw size={14} />
               <span>Retake</span>
@@ -657,7 +653,7 @@ export default function FaceDetectionCamera() {
             
             <button
               onClick={downloadImage}
-              className="flex items-center gap-1 px-3 py-1.5 bg-white text-black rounded-full text-xs sm:text-sm font-medium transition-colors hover:bg-white/90"
+              className="flex items-center gap-1 px-3 py-1.5 bg-white text-black rounded-full text-xs font-medium transition-colors hover:bg-white/90"
             >
               <Download size={14} />
               <span>Download</span>

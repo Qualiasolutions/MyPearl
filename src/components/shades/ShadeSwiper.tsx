@@ -2,10 +2,9 @@
 
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { Swiper, SwiperSlide } from 'swiper/react';
-import { FreeMode, Pagination } from 'swiper/modules';
+import { FreeMode } from 'swiper/modules';
 import 'swiper/css';
 import 'swiper/css/free-mode';
-import 'swiper/css/pagination';
 import { Shade } from '@/types/shades';
 import classNames from 'classnames';
 
@@ -31,22 +30,22 @@ export default function ShadeSwiper({
     return activeTab === 'default' ? builtInShades : customShades;
   }, [activeTab, builtInShades, customShades]);
 
-  // Handle window resize to adjust slides per view - improved for better responsiveness
+  // Handle window resize to adjust slides per view
   useEffect(() => {
     const handleResize = () => {
       const width = window.innerWidth;
       if (width < 375) {
-        setSlidesPerView(4);
+        setSlidesPerView(3.5);
       } else if (width < 480) {
-        setSlidesPerView(5);
+        setSlidesPerView(4.5);
       } else if (width < 640) {
-        setSlidesPerView(6);
+        setSlidesPerView(5.5);
       } else if (width < 768) {
-        setSlidesPerView(7);
+        setSlidesPerView(6.5);
       } else if (width < 1024) {
-        setSlidesPerView(8);
+        setSlidesPerView(7.5);
       } else {
-        setSlidesPerView(9);
+        setSlidesPerView(8.5);
       }
     };
     
@@ -95,7 +94,7 @@ export default function ShadeSwiper({
     const isSelected = selectedShade?.id === shade.id;
     
     return (
-      <SwiperSlide key={shade.id} className="py-1">
+      <SwiperSlide key={shade.id} className="pb-2">
         <button
           onClick={() => handleSelectShade(shade)}
           className={classNames(
@@ -106,14 +105,14 @@ export default function ShadeSwiper({
         >
           <div 
             className={classNames(
-              "w-10 h-10 rounded-full transition-all",
+              "w-12 h-12 rounded-full transition-all",
               isSelected 
                 ? "ring-2 ring-white shadow-lg" 
-                : "ring-1 ring-white/30"
+                : "ring-1 ring-white/50"
             )}
             style={{ backgroundColor: shade.colorHex }}
           />
-          <span className="text-[9px] text-white/80 mt-0.5 text-center truncate w-full">
+          <span className="text-[10px] text-white mt-1 text-center truncate w-full">
             {shade.name}
           </span>
         </button>
@@ -129,7 +128,7 @@ export default function ShadeSwiper({
           <button
             onClick={() => setActiveTab('default')}
             className={classNames(
-              "px-2.5 py-1 text-[10px] font-medium rounded-full transition-colors",
+              "px-3 py-1 text-xs font-medium rounded-full transition-colors",
               activeTab === 'default' 
                 ? "bg-white text-black" 
                 : "text-white/80 hover:text-white"
@@ -141,7 +140,7 @@ export default function ShadeSwiper({
           <button
             onClick={() => setActiveTab('custom')}
             className={classNames(
-              "px-2.5 py-1 text-[10px] font-medium rounded-full transition-colors",
+              "px-3 py-1 text-xs font-medium rounded-full transition-colors",
               activeTab === 'custom' 
                 ? "bg-white text-black" 
                 : "text-white/80 hover:text-white"
@@ -157,27 +156,19 @@ export default function ShadeSwiper({
         <Swiper
           ref={swiperRef}
           slidesPerView={slidesPerView}
-          spaceBetween={8}
+          spaceBetween={10}
           freeMode={{
             enabled: true,
             minimumVelocity: 0.02,
             momentum: true,
             momentumBounce: false
           }}
-          pagination={{
-            clickable: true,
-            el: '.swiper-pagination',
-            type: 'bullets',
-            dynamicBullets: true,
-            dynamicMainBullets: 3
-          }}
-          modules={[FreeMode, Pagination]}
-          className="shade-swiper px-1.5"
+          modules={[FreeMode]}
+          className="w-full px-2"
           touchEventsTarget="container"
           threshold={5} // More sensitive touch detection
         >
           {currentShades.map(renderShadeItem)}
-          <div className="swiper-pagination mt-1 h-3"></div>
         </Swiper>
       ) : (
         <div className="text-center py-2 text-white/60 text-xs">
@@ -186,23 +177,6 @@ export default function ShadeSwiper({
             : "No shades available"}
         </div>
       )}
-      
-      <style jsx global>{`
-        .shade-swiper .swiper-pagination {
-          position: relative;
-          bottom: 0;
-          margin-top: 2px;
-        }
-        .shade-swiper .swiper-pagination-bullet {
-          width: 4px;
-          height: 4px;
-          background: rgba(255, 255, 255, 0.4);
-          opacity: 1;
-        }
-        .shade-swiper .swiper-pagination-bullet-active {
-          background: rgba(255, 255, 255, 0.9);
-        }
-      `}</style>
     </div>
   );
 } 
